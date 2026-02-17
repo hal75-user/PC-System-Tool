@@ -28,21 +28,28 @@ logger = get_logger(__name__)
 
 
 class StatusMatrixDialog(QDialog):
-    """区間ステータス設定ダイアログ"""
+    """区間ステータス設定ダイアログ（フィルター・タブ対応版）"""
     
     def __init__(self, parent, app_config, config_loader):
         super().__init__(parent)
         self.app_config = app_config
         self.config_loader = config_loader
         self.setWindowTitle("区間ステータス設定")
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(1200, 700)
         
-        self.zekkens = sorted(config_loader.entries_dict.keys())
-        self.sections = config_loader.get_section_order()
+        self.all_zekkens = sorted(config_loader.entries_dict.keys())
+        self.all_sections = config_loader.get_section_order()
         self.status_options = ["", "RIT", "N.C.", "BLNK"]
         
         # 現在選択されているステータス
         self.current_status = ""
+        
+        # フィルター条件（ゼッケン番号のリスト）
+        self.filter_conditions = []
+        self.filter_active = False
+        
+        # タブウィジェット用
+        self.tab_widgets = []  # 各タブのStatusMatrixTabWidget
         
         self._create_widgets()
         self._load_current_status()
@@ -50,11 +57,13 @@ class StatusMatrixDialog(QDialog):
     def _create_widgets(self):
         layout = QVBoxLayout()
         
-        # 説明
-        label = QLabel("セルをクリックまたはドラッグして選択し、選択中のステータスを適用します")
-        layout.addWidget(label)
+        # 上部: 説明とステータス選択
+        top_layout = QVBoxLayout()
         
-        # トグルボタン配置
+        label = QLabel("セルをクリックまたはドラッグして選択し、選択中のステータスを適用します")
+        top_layout.addWidget(label)
+        
+        # ステータス選択ボタン
         button_layout = QHBoxLayout()
         button_layout.addWidget(QLabel("ステータス選択:"))
         
@@ -65,51 +74,87 @@ class StatusMatrixDialog(QDialog):
             btn.setCheckable(True)
             btn.setMinimumWidth(80)
             if status == "":
-                btn.setChecked(True)  # デフォルトで空白を選択
+                btn.setChecked(True)
             btn.clicked.connect(lambda checked, s=status: self._on_status_selected(s))
             self.status_buttons[status] = btn
             button_layout.addWidget(btn)
         
         button_layout.addStretch()
-        layout.addLayout(button_layout)
+        top_layout.addLayout(button_layout)
         
-        # スクロールエリア
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
+        # フィルターUI
+        filter_group_layout = QVBoxLayout()
+        filter_label = QLabel("ゼッケン番号フィルター:")
+        filter_label.setStyleSheet("font-weight: bold;")
+        filter_group_layout.addWidget(filter_label)
         
-        # テーブル
-        self.table = QTableWidget()
-        self.table.setRowCount(len(self.zekkens))
-        self.table.setColumnCount(len(self.sections) + 1)
+        # フィルター条件リストとボタン
+        filter_controls = QHBoxLayout()
         
-        # 複数セル選択を有効化
-        self.table.setSelectionMode(QTableWidget.MultiSelection)
+        # フィルター条件を表示するスクロールエリア
+        self.filter_scroll = QScrollArea()
+        self.filter_scroll.setMaximumHeight(100)
+        self.filter_scroll.setWidgetResizable(True)
         
-        # セルクリック/変更イベント
-        self.table.itemClicked.connect(self._on_cell_clicked)
-        self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        self.filter_widget = QWidget()
+        self.filter_layout = QVBoxLayout(self.filter_widget)
+        self.filter_layout.setAlignment(Qt.AlignTop)
+        self.filter_scroll.setWidget(self.filter_widget)
         
-        # ヘッダー
-        headers = ["ゼッケン"] + self.sections
-        self.table.setHorizontalHeaderLabels(headers)
+        filter_controls.addWidget(self.filter_scroll, stretch=3)
         
-        # データ入力
-        for row_idx, zekken in enumerate(self.zekkens):
-            # ゼッケン列
-            item = QTableWidgetItem(str(zekken))
-            item.setFlags(Qt.ItemIsEnabled)
-            item.setBackground(QBrush(QColor(240, 240, 240)))
-            self.table.setItem(row_idx, 0, item)
-            
-            # 各区間のセル
-            for col_idx, section in enumerate(self.sections, start=1):
-                item = QTableWidgetItem("")
-                item.setTextAlignment(Qt.AlignCenter)
-                item.setData(Qt.UserRole, (zekken, section))  # ゼッケンと区間を保存
-                self.table.setItem(row_idx, col_idx, item)
+        # フィルターボタン類
+        filter_buttons = QVBoxLayout()
         
-        scroll.setWidget(self.table)
-        layout.addWidget(scroll)
+        add_filter_btn = QPushButton("+ 条件追加")
+        add_filter_btn.clicked.connect(self._add_filter_condition)
+        filter_buttons.addWidget(add_filter_btn)
+        
+        apply_filter_btn = QPushButton("フィルター適用")
+        apply_filter_btn.clicked.connect(self._apply_filter)
+        filter_buttons.addWidget(apply_filter_btn)
+        
+        show_all_btn = QPushButton("全表示")
+        show_all_btn.clicked.connect(self._show_all)
+        filter_buttons.addWidget(show_all_btn)
+        
+        filter_buttons.addStretch()
+        filter_controls.addLayout(filter_buttons)
+        
+        filter_group_layout.addLayout(filter_controls)
+        top_layout.addLayout(filter_group_layout)
+        
+        layout.addLayout(top_layout)
+        
+        # タブウィジェット
+        self.tab_widget = QTabWidget()
+        
+        # 全日タブ
+        all_day_widget = StatusMatrixTabWidget(self, self.all_zekkens, self.all_sections)
+        self.tab_widgets.append(all_day_widget)
+        self.tab_widget.addTab(all_day_widget, "全日")
+        
+        # 日別タブを動的に生成
+        max_day = self.config_loader.get_max_day()
+        if max_day > 0:
+            for day_idx in range(1, max_day + 1):
+                sections = self.config_loader.get_sections_by_day(day_idx)
+                if sections:
+                    day_widget = StatusMatrixTabWidget(self, self.all_zekkens, sections)
+                    self.tab_widgets.append(day_widget)
+                    self.tab_widget.addTab(day_widget, f"{day_idx}日目")
+        else:
+            # DAY列がない場合、GROUP列で代替
+            for group_idx in range(1, 10):
+                sections = self.config_loader.get_sections_by_group(group_idx)
+                if sections:
+                    group_widget = StatusMatrixTabWidget(self, self.all_zekkens, sections)
+                    self.tab_widgets.append(group_widget)
+                    self.tab_widget.addTab(group_widget, f"グループ{group_idx}")
+                elif group_idx > 1 and len(self.tab_widgets) > 1:
+                    break
+        
+        layout.addWidget(self.tab_widget)
         
         # 下部ボタン
         bottom_layout = QHBoxLayout()
@@ -131,37 +176,188 @@ class StatusMatrixDialog(QDialog):
         
         self.setLayout(layout)
     
-    def _load_current_status(self):
-        """現在のステータス設定を読み込んでテーブルに反映"""
-        for row_idx, zekken in enumerate(self.zekkens):
-            for col_idx, section in enumerate(self.sections, start=1):
-                current_status = self.app_config.get_section_status(zekken, section) or ""
-                item = self.table.item(row_idx, col_idx)
-                if item:
-                    item.setText(current_status)
-                    self._update_cell_color(item, current_status)
+    def _add_filter_condition(self):
+        """フィルター条件を追加"""
+        condition_widget = QWidget()
+        condition_layout = QHBoxLayout(condition_widget)
+        condition_layout.setContentsMargins(0, 0, 0, 0)
+        
+        zekken_input = QLineEdit()
+        zekken_input.setPlaceholderText("ゼッケン番号")
+        zekken_input.setMaximumWidth(150)
+        condition_layout.addWidget(zekken_input)
+        
+        remove_btn = QPushButton("×")
+        remove_btn.setMaximumWidth(30)
+        remove_btn.clicked.connect(lambda: self._remove_filter_condition(condition_widget))
+        condition_layout.addWidget(remove_btn)
+        
+        condition_layout.addStretch()
+        
+        self.filter_layout.addWidget(condition_widget)
+        self.filter_conditions.append(zekken_input)
+    
+    def _remove_filter_condition(self, widget):
+        """フィルター条件を削除"""
+        # ウィジェット内のLineEditを探してリストから削除
+        for child in widget.findChildren(QLineEdit):
+            if child in self.filter_conditions:
+                self.filter_conditions.remove(child)
+        
+        # ウィジェット自体を削除
+        self.filter_layout.removeWidget(widget)
+        widget.deleteLater()
+    
+    def _apply_filter(self):
+        """フィルターを適用"""
+        # 有効なゼッケン番号を収集
+        filtered_zekkens = []
+        for input_widget in self.filter_conditions:
+            text = input_widget.text().strip()
+            if text:
+                try:
+                    zekken = int(text)
+                    if zekken in self.all_zekkens:
+                        filtered_zekkens.append(zekken)
+                except ValueError:
+                    pass
+        
+        if filtered_zekkens:
+            self.filter_active = True
+            filtered_zekkens = sorted(set(filtered_zekkens))
+            # 全タブにフィルター適用
+            for tab_widget in self.tab_widgets:
+                tab_widget.apply_filter(filtered_zekkens)
+        else:
+            QMessageBox.warning(self, "警告", "有効なゼッケン番号が入力されていません")
+    
+    def _show_all(self):
+        """全表示（フィルター条件は保持）"""
+        self.filter_active = False
+        # 全タブのフィルターを解除
+        for tab_widget in self.tab_widgets:
+            tab_widget.show_all()
     
     def _on_status_selected(self, status):
         """ステータスボタンが選択された時"""
-        # 他のボタンをオフにする
         for s, btn in self.status_buttons.items():
             btn.setChecked(s == status)
         
         self.current_status = status
+        # 全タブに現在のステータスを伝播
+        for tab_widget in self.tab_widgets:
+            tab_widget.current_status = status
+    
+    def _load_current_status(self):
+        """現在のステータス設定を読み込んでテーブルに反映"""
+        for tab_widget in self.tab_widgets:
+            tab_widget.load_current_status(self.app_config)
+    
+    def _save(self):
+        """ステータスを保存"""
+        self.app_config.status_map = {}
+        
+        # 全日タブからすべてのステータスを収集
+        all_day_widget = self.tab_widgets[0]  # 最初のタブは全日
+        all_day_widget.save_status(self.app_config)
+        
+        self.app_config.save()
+        QMessageBox.information(self, "成功", "ステータス設定を保存しました")
+        self.accept()
+    
+    def _clear_all(self):
+        """すべてクリア"""
+        reply = QMessageBox.question(self, "確認", "すべてのステータス設定をクリアしますか？")
+        if reply == QMessageBox.Yes:
+            for tab_widget in self.tab_widgets:
+                tab_widget.clear_all()
+
+
+class StatusMatrixTabWidget(QWidget):
+    """ステータスマトリックスの1つのタブ"""
+    
+    def __init__(self, parent_dialog, zekkens, sections):
+        super().__init__()
+        self.parent_dialog = parent_dialog
+        self.all_zekkens = zekkens
+        self.sections = sections
+        self.current_status = ""
+        self.filtered_zekkens = None  # Noneは全表示
+        
+        self._create_widgets()
+    
+    def _create_widgets(self):
+        layout = QVBoxLayout()
+        
+        # スクロールエリア
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        
+        # テーブル
+        self.table = QTableWidget()
+        self.table.setRowCount(len(self.all_zekkens))
+        self.table.setColumnCount(len(self.sections) + 1)
+        
+        # 複数セル選択を有効化
+        self.table.setSelectionMode(QTableWidget.MultiSelection)
+        
+        # セルクリック/変更イベント
+        self.table.itemClicked.connect(self._on_cell_clicked)
+        self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        
+        # ヘッダー
+        headers = ["ゼッケン"] + self.sections
+        self.table.setHorizontalHeaderLabels(headers)
+        
+        # データ入力
+        for row_idx, zekken in enumerate(self.all_zekkens):
+            # ゼッケン列
+            item = QTableWidgetItem(str(zekken))
+            item.setFlags(Qt.ItemIsEnabled)
+            item.setBackground(QBrush(QColor(240, 240, 240)))
+            self.table.setItem(row_idx, 0, item)
+            
+            # 各区間のセル
+            for col_idx, section in enumerate(self.sections, start=1):
+                item = QTableWidgetItem("")
+                item.setTextAlignment(Qt.AlignCenter)
+                item.setData(Qt.UserRole, (zekken, section))
+                self.table.setItem(row_idx, col_idx, item)
+        
+        scroll.setWidget(self.table)
+        layout.addWidget(scroll)
+        
+        self.setLayout(layout)
+    
+    def apply_filter(self, zekkens):
+        """フィルターを適用"""
+        self.filtered_zekkens = zekkens
+        self._update_row_visibility()
+    
+    def show_all(self):
+        """全表示"""
+        self.filtered_zekkens = None
+        self._update_row_visibility()
+    
+    def _update_row_visibility(self):
+        """行の表示/非表示を更新"""
+        for row_idx, zekken in enumerate(self.all_zekkens):
+            if self.filtered_zekkens is None:
+                self.table.setRowHidden(row_idx, False)
+            else:
+                self.table.setRowHidden(row_idx, zekken not in self.filtered_zekkens)
     
     def _on_cell_clicked(self, item):
         """セルがクリックされた時"""
-        if item.column() == 0:  # ゼッケン列はスキップ
+        if item.column() == 0:
             return
-        
-        # 現在選択されているステータスを適用
         self._apply_status_to_item(item)
     
     def _on_selection_changed(self):
         """選択が変更された時（ドラッグ選択）"""
         selected_items = self.table.selectedItems()
         for item in selected_items:
-            if item.column() > 0:  # ゼッケン列以外
+            if item.column() > 0:
                 self._apply_status_to_item(item)
     
     def _apply_status_to_item(self, item):
@@ -180,32 +376,34 @@ class StatusMatrixDialog(QDialog):
         elif status == "BLNK":
             item.setBackground(QBrush(QColor(200, 200, 255)))
     
-    def _save(self):
+    def load_current_status(self, app_config):
+        """現在のステータス設定を読み込んでテーブルに反映"""
+        for row_idx, zekken in enumerate(self.all_zekkens):
+            for col_idx, section in enumerate(self.sections, start=1):
+                current_status = app_config.get_section_status(zekken, section) or ""
+                item = self.table.item(row_idx, col_idx)
+                if item:
+                    item.setText(current_status)
+                    self._update_cell_color(item, current_status)
+    
+    def save_status(self, app_config):
         """ステータスを保存"""
-        self.app_config.status_map = {}
-        
-        for row_idx, zekken in enumerate(self.zekkens):
+        for row_idx, zekken in enumerate(self.all_zekkens):
             for col_idx, section in enumerate(self.sections, start=1):
                 item = self.table.item(row_idx, col_idx)
                 if item:
                     status = item.text()
                     if status:
-                        self.app_config.set_section_status(zekken, section, status)
-        
-        self.app_config.save()
-        QMessageBox.information(self, "成功", "ステータス設定を保存しました")
-        self.accept()
+                        app_config.set_section_status(zekken, section, status)
     
-    def _clear_all(self):
+    def clear_all(self):
         """すべてクリア"""
-        reply = QMessageBox.question(self, "確認", "すべてのステータス設定をクリアしますか？")
-        if reply == QMessageBox.Yes:
-            for row_idx in range(self.table.rowCount()):
-                for col_idx in range(1, self.table.columnCount()):
-                    item = self.table.item(row_idx, col_idx)
-                    if item:
-                        item.setText("")
-                        self._update_cell_color(item, "")
+        for row_idx in range(self.table.rowCount()):
+            for col_idx in range(1, self.table.columnCount()):
+                item = self.table.item(row_idx, col_idx)
+                if item:
+                    item.setText("")
+                    self._update_cell_color(item, "")
 
 
 class FinalStatusDialog(QDialog):
