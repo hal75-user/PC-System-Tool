@@ -20,6 +20,11 @@ from race_parser import RaceParser
 from calculation_engine import CalculationEngine
 from output_formatter import OutputFormatter
 from app_config import AppConfig
+from logging_config import init_app_logging, get_logger
+
+# ロギング初期化
+init_app_logging()
+logger = get_logger(__name__)
 
 
 class StatusMatrixDialog(QDialog):
@@ -817,6 +822,9 @@ class MainWindow(QMainWindow):
         self.calc_engine = None
         self.output_formatter = None
         
+        # 自動読み込みフラグ
+        self.auto_load_attempted = False
+        
         self._create_widgets()
         self._create_menu()
         
@@ -827,10 +835,70 @@ class MainWindow(QMainWindow):
         self.log(f"settings フォルダ: {self.app_config.settings_folder}")
         self.log(f"CO 点数: {self.app_config.co_point}")
         self.log("")
-        self.log("①〜④の順にボタンをクリックしてください")
+        
+        # 起動時に自動読み込みを試行
+        self._auto_load_on_startup()
         
         # 全画面表示
         self.showMaximized()
+    
+    def _auto_load_on_startup(self):
+        """起動時に設定ファイルを自動読み込み"""
+        import os
+        
+        self.log("【起動時自動読み込み】")
+        
+        # settings フォルダの存在チェック
+        if not os.path.exists(self.app_config.settings_folder):
+            self.log(f"⚠ settings フォルダが見つかりません: {self.app_config.settings_folder}")
+            self.log("フォルダを設定してから ① Setting読み込み をクリックしてください")
+            self.log("")
+            return
+        
+        # 設定ファイルの自動読み込みを試行
+        try:
+            self.log("設定ファイルを自動読み込み中...")
+            self.config_loader = ConfigLoader(self.app_config.settings_folder)
+            success, msg = self.config_loader.load_all()
+            
+            if success:
+                self.log(f"✓ {msg}")
+                self.log(f"✓ ゼッケン数: {len(self.config_loader.entries_dict)}")
+                self.log(f"✓ 区間数: {len(self.config_loader.section_dict)}")
+                self.auto_load_attempted = True
+                
+                # 保存されたステータスを復元
+                self._restore_saved_status()
+                
+                self.log("")
+                self.log("✓ 設定ファイルの自動読み込みが完了しました")
+                self.log("次に ② Race読み込み をクリックしてください")
+            else:
+                self.log(f"⚠ 自動読み込み失敗: {msg}")
+                self.log("手動で ① Setting読み込み をクリックしてください")
+        except Exception as e:
+            self.log(f"⚠ 自動読み込みエラー: {str(e)}")
+            self.log("手動で ① Setting読み込み をクリックしてください")
+        
+        self.log("")
+    
+    def _restore_saved_status(self):
+        """保存されたステータス設定を復元"""
+        if not self.app_config.status_map and not self.app_config.final_status:
+            return
+        
+        status_count = 0
+        
+        # 区間ステータスの数をカウント
+        for zekken, sections in self.app_config.status_map.items():
+            status_count += len(sections)
+        
+        # 最終ステータスの数をカウント
+        status_count += len(self.app_config.final_status)
+        
+        if status_count > 0:
+            self.log(f"✓ 保存済みステータス設定を復元しました（{status_count}件）")
+
     
     def _create_widgets(self):
         """ウィジェット作成"""
@@ -1042,8 +1110,20 @@ class MainWindow(QMainWindow):
                 self.app_config.co_point
             )
             
+            # 保存されたステータス設定を適用
             self.calc_engine.status_map = self.app_config.status_map.copy()
             self.calc_engine.final_status = self.app_config.final_status.copy()
+            
+            # ステータス適用状況をログに表示
+            status_count = sum(len(sections) for sections in self.calc_engine.status_map.values())
+            final_status_count = len(self.calc_engine.final_status)
+            
+            if status_count > 0 or final_status_count > 0:
+                self.log(f"✓ 保存済みステータス設定を適用中...")
+                if status_count > 0:
+                    self.log(f"  - 区間ステータス: {status_count}件")
+                if final_status_count > 0:
+                    self.log(f"  - 最終ステータス: {final_status_count}件")
             
             self.log("計算中...")
             self.calc_engine.calculate_all()
