@@ -835,6 +835,8 @@ class ResultTableWidget(QWidget):
                     continue
                 
                 result = self.calc_engine.results[zekken][section]
+                # 区間タイプを取得
+                section_type = self.calc_engine._get_section_type(section)
                 
                 if result.status:
                     # ステータスあり
@@ -859,7 +861,7 @@ class ResultTableWidget(QWidget):
                         diff_str = self._format_diff_simple(result.diff) if result.diff is not None else "ー"
                         item = self._set_item(row_idx, col_idx, diff_str)
                         if result.diff is not None:
-                            self._color_diff_cell(item, result.diff)
+                            self._color_diff_cell(item, result.diff, section_type)
                         col_idx += 1
                         
                         # 順位: N.C.を表示
@@ -890,18 +892,40 @@ class ResultTableWidget(QWidget):
                     self._set_item(row_idx, col_idx, passage_str)
                     col_idx += 1
                     
-                    # 差分（色付き）- 秒単位で±00.00形式
-                    diff_str = self._format_diff_simple(result.diff) if result.diff is not None else "ー"
-                    item = self._set_item(row_idx, col_idx, diff_str)
-                    if result.diff is not None:
-                        self._color_diff_cell(item, result.diff)
+                    # 差分の表示とフォーマット
+                    if section_type == "CO":
+                        # CO: OK/NG 表示
+                        # CO の許容時間を取得（section_dict から time フィールド）
+                        co_tolerance = self.config_loader.section_dict.get(section, 0)
+                        if result.diff is not None:
+                            if abs(result.diff) <= co_tolerance:
+                                diff_str = "OK"
+                                color = QColor("#388E3C")  # 緑
+                            else:
+                                diff_str = "NG"
+                                color = QColor("#D32F2F")  # 赤
+                            item = self._set_item(row_idx, col_idx, diff_str)
+                            item.setForeground(color)
+                        else:
+                            self._set_item(row_idx, col_idx, "ー")
+                    else:
+                        # PC/PCG: 差分を秒で表示（色付き）
+                        diff_str = self._format_diff_simple(result.diff) if result.diff is not None else "ー"
+                        item = self._set_item(row_idx, col_idx, diff_str)
+                        if result.diff is not None:
+                            self._color_diff_cell(item, result.diff, section_type)
                     col_idx += 1
                     
-                    # 順位（色付き）
-                    rank_str = str(result.rank) if result.rank else "ー"
-                    item = self._set_item(row_idx, col_idx, rank_str)
-                    if result.rank:
-                        self._color_rank_cell(item, result.rank)
+                    # 順位
+                    if section_type == "CO":
+                        # CO: 順位は "-" を表示
+                        self._set_item(row_idx, col_idx, "-")
+                    else:
+                        # PC/PCG: 順位を表示（色付き）
+                        rank_str = str(result.rank) if result.rank else "ー"
+                        item = self._set_item(row_idx, col_idx, rank_str)
+                        if result.rank:
+                            self._color_rank_cell(item, result.rank)
                     col_idx += 1
                     
                     # 得点
@@ -960,39 +984,38 @@ class ResultTableWidget(QWidget):
                 return self.calc_engine.race.goal_time[zekken][section]
         return "ー"
     
-    def _color_diff_cell(self, item, diff):
-        """差分セルに色を付ける"""
-        abs_diff = abs(diff)
+    def _color_diff_cell(self, item, diff, section_type="PC"):
+        """差分セルに色を付ける（PC/PCG用）
         
-        if abs_diff <= 0.5:
-            color = QColor(0, 150, 0)  # 濃い緑
-        elif abs_diff <= 1.0:
-            color = QColor(0, 200, 0)  # 緑
-        elif abs_diff <= 2.0:
-            color = QColor(150, 255, 150)  # 薄い緑
-        elif abs_diff <= 5.0:
-            color = QColor(255, 255, 0)  # 黄色
-        elif abs_diff <= 10.0:
-            color = QColor(255, 165, 0)  # オレンジ
-        else:
-            color = QColor(255, 100, 100)  # 赤
-        
-        item.setBackground(QBrush(color))
-    
-    def _color_rank_cell(self, item, rank):
-        """順位セルに色を付ける"""
-        if rank == 1:
-            color = QColor(255, 215, 0)  # 金色
-        elif rank == 2:
-            color = QColor(192, 192, 192)  # 銀色
-        elif rank == 3:
-            color = QColor(205, 127, 50)  # 銅色
-        elif rank <= 10:
-            color = QColor(173, 216, 230)  # 薄い青
-        else:
+        Args:
+            item: テーブルアイテム
+            diff: 差分（秒）
+            section_type: 区間タイプ（PC, PCG, CO）
+        """
+        # CO の場合は色付けしない（OK/NG表示で色付け）
+        if section_type == "CO":
             return
         
-        item.setBackground(QBrush(color))
+        # PC/PCG の場合: 1秒以上=赤、1秒以内=緑
+        abs_diff = abs(diff)
+        if abs_diff >= 1.0:
+            # 赤文字
+            item.setForeground(QColor("#D32F2F"))
+        else:
+            # 緑文字
+            item.setForeground(QColor("#388E3C"))
+    
+    def _color_rank_cell(self, item, rank):
+        """順位セルに色を付ける（1位のみ黄色背景）
+        
+        Args:
+            item: テーブルアイテム
+            rank: 順位
+        """
+        # 1位のみ黄色背景
+        if rank == 1:
+            color = QColor("#FFD700")  # 黄色
+            item.setBackground(QBrush(color))
 
 
 class SummaryTableWidget(QWidget):
