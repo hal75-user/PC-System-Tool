@@ -20,24 +20,38 @@ from race_parser import RaceParser
 from calculation_engine import CalculationEngine
 from output_formatter import OutputFormatter
 from app_config import AppConfig
+from logging_config import init_app_logging, get_logger
+from sample_generator import generate_sample_files
+from data_validator import validate_all
+
+# ロギング初期化
+init_app_logging()
+logger = get_logger(__name__)
 
 
 class StatusMatrixDialog(QDialog):
-    """区間ステータス設定ダイアログ"""
+    """区間ステータス設定ダイアログ（フィルター・タブ対応版）"""
     
     def __init__(self, parent, app_config, config_loader):
         super().__init__(parent)
         self.app_config = app_config
         self.config_loader = config_loader
         self.setWindowTitle("区間ステータス設定")
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(1200, 700)
         
-        self.zekkens = sorted(config_loader.entries_dict.keys())
-        self.sections = config_loader.get_section_order()
+        self.all_zekkens = sorted(config_loader.entries_dict.keys())
+        self.all_sections = config_loader.get_section_order()
         self.status_options = ["", "RIT", "N.C.", "BLNK"]
         
         # 現在選択されているステータス
         self.current_status = ""
+        
+        # フィルター条件（ゼッケン番号のリスト）
+        self.filter_conditions = []
+        self.filter_active = False
+        
+        # タブウィジェット用
+        self.tab_widgets = []  # 各タブのStatusMatrixTabWidget
         
         self._create_widgets()
         self._load_current_status()
@@ -45,11 +59,13 @@ class StatusMatrixDialog(QDialog):
     def _create_widgets(self):
         layout = QVBoxLayout()
         
-        # 説明
-        label = QLabel("セルをクリックまたはドラッグして選択し、選択中のステータスを適用します")
-        layout.addWidget(label)
+        # 上部: 説明とステータス選択
+        top_layout = QVBoxLayout()
         
-        # トグルボタン配置
+        label = QLabel("セルをクリックまたはドラッグして選択し、選択中のステータスを適用します")
+        top_layout.addWidget(label)
+        
+        # ステータス選択ボタン
         button_layout = QHBoxLayout()
         button_layout.addWidget(QLabel("ステータス選択:"))
         
@@ -60,51 +76,87 @@ class StatusMatrixDialog(QDialog):
             btn.setCheckable(True)
             btn.setMinimumWidth(80)
             if status == "":
-                btn.setChecked(True)  # デフォルトで空白を選択
+                btn.setChecked(True)
             btn.clicked.connect(lambda checked, s=status: self._on_status_selected(s))
             self.status_buttons[status] = btn
             button_layout.addWidget(btn)
         
         button_layout.addStretch()
-        layout.addLayout(button_layout)
+        top_layout.addLayout(button_layout)
         
-        # スクロールエリア
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
+        # フィルターUI
+        filter_group_layout = QVBoxLayout()
+        filter_label = QLabel("ゼッケン番号フィルター:")
+        filter_label.setStyleSheet("font-weight: bold;")
+        filter_group_layout.addWidget(filter_label)
         
-        # テーブル
-        self.table = QTableWidget()
-        self.table.setRowCount(len(self.zekkens))
-        self.table.setColumnCount(len(self.sections) + 1)
+        # フィルター条件リストとボタン
+        filter_controls = QHBoxLayout()
         
-        # 複数セル選択を有効化
-        self.table.setSelectionMode(QTableWidget.MultiSelection)
+        # フィルター条件を表示するスクロールエリア
+        self.filter_scroll = QScrollArea()
+        self.filter_scroll.setMaximumHeight(100)
+        self.filter_scroll.setWidgetResizable(True)
         
-        # セルクリック/変更イベント
-        self.table.itemClicked.connect(self._on_cell_clicked)
-        self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        self.filter_widget = QWidget()
+        self.filter_layout = QVBoxLayout(self.filter_widget)
+        self.filter_layout.setAlignment(Qt.AlignTop)
+        self.filter_scroll.setWidget(self.filter_widget)
         
-        # ヘッダー
-        headers = ["ゼッケン"] + self.sections
-        self.table.setHorizontalHeaderLabels(headers)
+        filter_controls.addWidget(self.filter_scroll, stretch=3)
         
-        # データ入力
-        for row_idx, zekken in enumerate(self.zekkens):
-            # ゼッケン列
-            item = QTableWidgetItem(str(zekken))
-            item.setFlags(Qt.ItemIsEnabled)
-            item.setBackground(QBrush(QColor(240, 240, 240)))
-            self.table.setItem(row_idx, 0, item)
-            
-            # 各区間のセル
-            for col_idx, section in enumerate(self.sections, start=1):
-                item = QTableWidgetItem("")
-                item.setTextAlignment(Qt.AlignCenter)
-                item.setData(Qt.UserRole, (zekken, section))  # ゼッケンと区間を保存
-                self.table.setItem(row_idx, col_idx, item)
+        # フィルターボタン類
+        filter_buttons = QVBoxLayout()
         
-        scroll.setWidget(self.table)
-        layout.addWidget(scroll)
+        add_filter_btn = QPushButton("+ 条件追加")
+        add_filter_btn.clicked.connect(self._add_filter_condition)
+        filter_buttons.addWidget(add_filter_btn)
+        
+        apply_filter_btn = QPushButton("フィルター適用")
+        apply_filter_btn.clicked.connect(self._apply_filter)
+        filter_buttons.addWidget(apply_filter_btn)
+        
+        show_all_btn = QPushButton("全表示")
+        show_all_btn.clicked.connect(self._show_all)
+        filter_buttons.addWidget(show_all_btn)
+        
+        filter_buttons.addStretch()
+        filter_controls.addLayout(filter_buttons)
+        
+        filter_group_layout.addLayout(filter_controls)
+        top_layout.addLayout(filter_group_layout)
+        
+        layout.addLayout(top_layout)
+        
+        # タブウィジェット
+        self.tab_widget = QTabWidget()
+        
+        # 全日タブ
+        all_day_widget = StatusMatrixTabWidget(self, self.all_zekkens, self.all_sections)
+        self.tab_widgets.append(all_day_widget)
+        self.tab_widget.addTab(all_day_widget, "全日")
+        
+        # 日別タブを動的に生成
+        max_day = self.config_loader.get_max_day()
+        if max_day > 0:
+            for day_idx in range(1, max_day + 1):
+                sections = self.config_loader.get_sections_by_day(day_idx)
+                if sections:
+                    day_widget = StatusMatrixTabWidget(self, self.all_zekkens, sections)
+                    self.tab_widgets.append(day_widget)
+                    self.tab_widget.addTab(day_widget, f"{day_idx}日目")
+        else:
+            # DAY列がない場合、GROUP列で代替
+            for group_idx in range(1, 10):
+                sections = self.config_loader.get_sections_by_group(group_idx)
+                if sections:
+                    group_widget = StatusMatrixTabWidget(self, self.all_zekkens, sections)
+                    self.tab_widgets.append(group_widget)
+                    self.tab_widget.addTab(group_widget, f"グループ{group_idx}")
+                elif group_idx > 1 and len(self.tab_widgets) > 1:
+                    break
+        
+        layout.addWidget(self.tab_widget)
         
         # 下部ボタン
         bottom_layout = QHBoxLayout()
@@ -126,37 +178,217 @@ class StatusMatrixDialog(QDialog):
         
         self.setLayout(layout)
     
-    def _load_current_status(self):
-        """現在のステータス設定を読み込んでテーブルに反映"""
-        for row_idx, zekken in enumerate(self.zekkens):
-            for col_idx, section in enumerate(self.sections, start=1):
-                current_status = self.app_config.get_section_status(zekken, section) or ""
-                item = self.table.item(row_idx, col_idx)
-                if item:
-                    item.setText(current_status)
-                    self._update_cell_color(item, current_status)
+    def _add_filter_condition(self):
+        """フィルター条件を追加"""
+        condition_widget = QWidget()
+        condition_layout = QHBoxLayout(condition_widget)
+        condition_layout.setContentsMargins(0, 0, 0, 0)
+        
+        zekken_input = QLineEdit()
+        zekken_input.setPlaceholderText("ゼッケン番号")
+        zekken_input.setMaximumWidth(150)
+        condition_layout.addWidget(zekken_input)
+        
+        remove_btn = QPushButton("×")
+        remove_btn.setMaximumWidth(30)
+        remove_btn.clicked.connect(lambda: self._remove_filter_condition(condition_widget))
+        condition_layout.addWidget(remove_btn)
+        
+        condition_layout.addStretch()
+        
+        self.filter_layout.addWidget(condition_widget)
+        self.filter_conditions.append(zekken_input)
+    
+    def _remove_filter_condition(self, widget):
+        """フィルター条件を削除"""
+        # ウィジェット内のLineEditを探してリストから削除
+        for child in widget.findChildren(QLineEdit):
+            if child in self.filter_conditions:
+                self.filter_conditions.remove(child)
+        
+        # ウィジェット自体を削除
+        self.filter_layout.removeWidget(widget)
+        widget.deleteLater()
+    
+    def _apply_filter(self):
+        """フィルターを適用"""
+        # 有効なゼッケン番号を収集
+        filtered_zekkens = []
+        for input_widget in self.filter_conditions:
+            text = input_widget.text().strip()
+            if text:
+                try:
+                    zekken = int(text)
+                    if zekken in self.all_zekkens:
+                        filtered_zekkens.append(zekken)
+                except ValueError:
+                    pass
+        
+        if filtered_zekkens:
+            self.filter_active = True
+            filtered_zekkens = sorted(set(filtered_zekkens))
+            # 全タブにフィルター適用
+            for tab_widget in self.tab_widgets:
+                tab_widget.apply_filter(filtered_zekkens)
+        else:
+            QMessageBox.warning(self, "警告", "有効なゼッケン番号が入力されていません")
+    
+    def _show_all(self):
+        """全表示（フィルター条件は保持）"""
+        self.filter_active = False
+        # 全タブのフィルターを解除
+        for tab_widget in self.tab_widgets:
+            tab_widget.show_all()
     
     def _on_status_selected(self, status):
         """ステータスボタンが選択された時"""
-        # 他のボタンをオフにする
         for s, btn in self.status_buttons.items():
             btn.setChecked(s == status)
         
         self.current_status = status
+        # 全タブに現在のステータスを伝播
+        for tab_widget in self.tab_widgets:
+            tab_widget.current_status = status
+    
+    def _load_current_status(self):
+        """現在のステータス設定を読み込んでテーブルに反映"""
+        for tab_widget in self.tab_widgets:
+            tab_widget.load_current_status(self.app_config)
+    
+    def _save(self):
+        """ステータスを保存"""
+        self.app_config.status_map = {}
+        
+        # 全日タブからすべてのステータスを収集
+        all_day_widget = self.tab_widgets[0]  # 最初のタブは全日
+        all_day_widget.save_status(self.app_config)
+        
+        self.app_config.save()
+        QMessageBox.information(self, "成功", "ステータス設定を保存しました")
+        self.accept()
+    
+    def _clear_all(self):
+        """すべてクリア"""
+        reply = QMessageBox.question(self, "確認", "すべてのステータス設定をクリアしますか？")
+        if reply == QMessageBox.Yes:
+            for tab_widget in self.tab_widgets:
+                tab_widget.clear_all()
+
+
+class StatusMatrixTabWidget(QWidget):
+    """ステータスマトリックスの1つのタブ"""
+    
+    def __init__(self, parent_dialog, zekkens, sections):
+        super().__init__()
+        self.parent_dialog = parent_dialog
+        self.all_zekkens = zekkens
+        self.sections = sections
+        self.current_status = ""
+        self.filtered_zekkens = None  # Noneは全表示
+        
+        self._create_widgets()
+    
+    def _create_widgets(self):
+        layout = QVBoxLayout()
+        
+        # スクロールエリア
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        
+        # テーブル
+        self.table = QTableWidget()
+        self.table.setRowCount(len(self.all_zekkens))
+        # 列数: ゼッケン + 区間 + Total Result + Penalty
+        self.table.setColumnCount(len(self.sections) + 3)
+        
+        # 複数セル選択を有効化
+        self.table.setSelectionMode(QTableWidget.MultiSelection)
+        
+        # セルクリック/変更イベント
+        self.table.itemClicked.connect(self._on_cell_clicked)
+        self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        
+        # ヘッダー
+        headers = ["ゼッケン"] + self.sections + ["ペナルティ", "Total Result"]
+        self.table.setHorizontalHeaderLabels(headers)
+        
+        # ペナルティ列とTotal Result列のインデックスを記憶
+        self.penalty_col = len(self.sections) + 1
+        self.total_result_col = len(self.sections) + 2
+        
+        # データ入力
+        for row_idx, zekken in enumerate(self.all_zekkens):
+            # ゼッケン列
+            item = QTableWidgetItem(str(zekken))
+            item.setFlags(Qt.ItemIsEnabled)
+            item.setBackground(QBrush(QColor(240, 240, 240)))
+            self.table.setItem(row_idx, 0, item)
+            
+            # 各区間のセル
+            for col_idx, section in enumerate(self.sections, start=1):
+                item = QTableWidgetItem("")
+                item.setTextAlignment(Qt.AlignCenter)
+                item.setData(Qt.UserRole, (zekken, section))
+                self.table.setItem(row_idx, col_idx, item)
+            
+            # ペナルティ列（数字入力）
+            penalty_item = QTableWidgetItem("")
+            penalty_item.setTextAlignment(Qt.AlignCenter)
+            penalty_item.setData(Qt.UserRole, ("penalty", zekken))
+            penalty_item.setBackground(QBrush(QColor(255, 250, 205)))  # 淡い黄色で区別
+            self.table.setItem(row_idx, self.penalty_col, penalty_item)
+            
+            # Total Result列（ステータス入力）
+            total_result_item = QTableWidgetItem("")
+            total_result_item.setTextAlignment(Qt.AlignCenter)
+            total_result_item.setData(Qt.UserRole, ("total_result", zekken))
+            self.table.setItem(row_idx, self.total_result_col, total_result_item)
+        
+        scroll.setWidget(self.table)
+        layout.addWidget(scroll)
+        
+        self.setLayout(layout)
+    
+    def apply_filter(self, zekkens):
+        """フィルターを適用"""
+        self.filtered_zekkens = zekkens
+        self._update_row_visibility()
+    
+    def show_all(self):
+        """全表示"""
+        self.filtered_zekkens = None
+        self._update_row_visibility()
+    
+    def _update_row_visibility(self):
+        """行の表示/非表示を更新"""
+        for row_idx, zekken in enumerate(self.all_zekkens):
+            if self.filtered_zekkens is None:
+                self.table.setRowHidden(row_idx, False)
+            else:
+                self.table.setRowHidden(row_idx, zekken not in self.filtered_zekkens)
     
     def _on_cell_clicked(self, item):
         """セルがクリックされた時"""
-        if item.column() == 0:  # ゼッケン列はスキップ
+        if item.column() == 0:  # ゼッケン列
             return
         
-        # 現在選択されているステータスを適用
-        self._apply_status_to_item(item)
+        col = item.column()
+        
+        # ペナルティ列は数字入力なので、クリックでステータスを適用しない
+        if col == self.penalty_col:
+            return
+        
+        # 区間ステータスまたはTotal Result列の場合、ステータスを適用
+        if col <= len(self.sections) or col == self.total_result_col:
+            self._apply_status_to_item(item)
     
     def _on_selection_changed(self):
         """選択が変更された時（ドラッグ選択）"""
         selected_items = self.table.selectedItems()
         for item in selected_items:
-            if item.column() > 0:  # ゼッケン列以外
+            col = item.column()
+            # ゼッケン列とペナルティ列以外にステータスを適用
+            if col > 0 and col != self.penalty_col:
                 self._apply_status_to_item(item)
     
     def _apply_status_to_item(self, item):
@@ -175,32 +407,70 @@ class StatusMatrixDialog(QDialog):
         elif status == "BLNK":
             item.setBackground(QBrush(QColor(200, 200, 255)))
     
-    def _save(self):
+    def load_current_status(self, app_config):
+        """現在のステータス設定を読み込んでテーブルに反映"""
+        for row_idx, zekken in enumerate(self.all_zekkens):
+            # 区間ステータス
+            for col_idx, section in enumerate(self.sections, start=1):
+                current_status = app_config.get_section_status(zekken, section) or ""
+                item = self.table.item(row_idx, col_idx)
+                if item:
+                    item.setText(current_status)
+                    self._update_cell_color(item, current_status)
+            
+            # Total Result ステータス
+            total_result_status = app_config.get_final_status(zekken) or ""
+            total_result_item = self.table.item(row_idx, self.total_result_col)
+            if total_result_item:
+                total_result_item.setText(total_result_status)
+                self._update_cell_color(total_result_item, total_result_status)
+            
+            # ペナルティ
+            penalty = app_config.get_penalty(zekken)
+            penalty_item = self.table.item(row_idx, self.penalty_col)
+            if penalty_item:
+                if penalty != 0.0:
+                    penalty_item.setText(str(penalty))
+                else:
+                    penalty_item.setText("")
+    
+    def save_status(self, app_config):
         """ステータスを保存"""
-        self.app_config.status_map = {}
-        
-        for row_idx, zekken in enumerate(self.zekkens):
+        for row_idx, zekken in enumerate(self.all_zekkens):
+            # 区間ステータス
             for col_idx, section in enumerate(self.sections, start=1):
                 item = self.table.item(row_idx, col_idx)
                 if item:
                     status = item.text()
                     if status:
-                        self.app_config.set_section_status(zekken, section, status)
-        
-        self.app_config.save()
-        QMessageBox.information(self, "成功", "ステータス設定を保存しました")
-        self.accept()
+                        app_config.set_section_status(zekken, section, status)
+            
+            # Total Result ステータス
+            total_result_item = self.table.item(row_idx, self.total_result_col)
+            if total_result_item:
+                status = total_result_item.text()
+                if status:
+                    app_config.set_final_status(zekken, status)
+            
+            # ペナルティ
+            penalty_item = self.table.item(row_idx, self.penalty_col)
+            if penalty_item:
+                penalty_text = penalty_item.text().strip()
+                if penalty_text:
+                    try:
+                        penalty = float(penalty_text)
+                        app_config.set_penalty(zekken, penalty)
+                    except ValueError:
+                        pass  # 無効な数字は無視
     
-    def _clear_all(self):
+    def clear_all(self):
         """すべてクリア"""
-        reply = QMessageBox.question(self, "確認", "すべてのステータス設定をクリアしますか？")
-        if reply == QMessageBox.Yes:
-            for row_idx in range(self.table.rowCount()):
-                for col_idx in range(1, self.table.columnCount()):
-                    item = self.table.item(row_idx, col_idx)
-                    if item:
-                        item.setText("")
-                        self._update_cell_color(item, "")
+        for row_idx in range(self.table.rowCount()):
+            for col_idx in range(1, self.table.columnCount()):
+                item = self.table.item(row_idx, col_idx)
+                if item:
+                    item.setText("")
+                    self._update_cell_color(item, "")
 
 
 class FinalStatusDialog(QDialog):
@@ -565,12 +835,47 @@ class ResultTableWidget(QWidget):
                     continue
                 
                 result = self.calc_engine.results[zekken][section]
+                # 区間タイプを取得
+                section_type = self.calc_engine._get_section_type(section)
                 
                 if result.status:
                     # ステータスあり
-                    for _ in range(6):
+                    if result.status == "N.C.":
+                        # N.C.の場合: タイム表示あり、差分算出、順位は除外
+                        # START
+                        start_time = self._get_time_str(zekken, section, "START")
+                        self._set_item(row_idx, col_idx, start_time)
+                        col_idx += 1
+                        
+                        # GOAL
+                        goal_time = self._get_time_str(zekken, section, "GOAL")
+                        self._set_item(row_idx, col_idx, goal_time)
+                        col_idx += 1
+                        
+                        # 走行時間
+                        passage_str = self.calc_engine.format_time(result.passage_time) if result.passage_time else "ー"
+                        self._set_item(row_idx, col_idx, passage_str)
+                        col_idx += 1
+                        
+                        # 差分（色付き）- 秒単位で±00.00形式
+                        diff_str = self._format_diff_simple(result.diff) if result.diff is not None else "ー"
+                        item = self._set_item(row_idx, col_idx, diff_str)
+                        if result.diff is not None:
+                            self._color_diff_cell(item, result.diff, section_type)
+                        col_idx += 1
+                        
+                        # 順位: N.C.を表示
                         self._set_item(row_idx, col_idx, result.status)
                         col_idx += 1
+                        
+                        # 得点
+                        self._set_item(row_idx, col_idx, str(result.point))
+                        col_idx += 1
+                    else:
+                        # RIT, BLNKの場合: タイム表示無し、すべてステータス表示
+                        for _ in range(6):
+                            self._set_item(row_idx, col_idx, result.status)
+                            col_idx += 1
                 else:
                     # START
                     start_time = self._get_time_str(zekken, section, "START")
@@ -587,18 +892,40 @@ class ResultTableWidget(QWidget):
                     self._set_item(row_idx, col_idx, passage_str)
                     col_idx += 1
                     
-                    # 差分（色付き）- 秒単位で±00.00形式
-                    diff_str = self._format_diff_simple(result.diff) if result.diff is not None else "ー"
-                    item = self._set_item(row_idx, col_idx, diff_str)
-                    if result.diff is not None:
-                        self._color_diff_cell(item, result.diff)
+                    # 差分の表示とフォーマット
+                    if section_type == "CO":
+                        # CO: OK/NG 表示
+                        # CO の許容時間を取得（section_dict から time フィールド）
+                        co_tolerance = self.config_loader.section_dict.get(section, 0)
+                        if result.diff is not None:
+                            if abs(result.diff) <= co_tolerance:
+                                diff_str = "OK"
+                                color = QColor("#388E3C")  # 緑
+                            else:
+                                diff_str = "NG"
+                                color = QColor("#D32F2F")  # 赤
+                            item = self._set_item(row_idx, col_idx, diff_str)
+                            item.setForeground(color)
+                        else:
+                            self._set_item(row_idx, col_idx, "ー")
+                    else:
+                        # PC/PCG: 差分を秒で表示（色付き）
+                        diff_str = self._format_diff_simple(result.diff) if result.diff is not None else "ー"
+                        item = self._set_item(row_idx, col_idx, diff_str)
+                        if result.diff is not None:
+                            self._color_diff_cell(item, result.diff, section_type)
                     col_idx += 1
                     
-                    # 順位（色付き）
-                    rank_str = str(result.rank) if result.rank else "ー"
-                    item = self._set_item(row_idx, col_idx, rank_str)
-                    if result.rank:
-                        self._color_rank_cell(item, result.rank)
+                    # 順位
+                    if section_type == "CO":
+                        # CO: 順位は "-" を表示
+                        self._set_item(row_idx, col_idx, "-")
+                    else:
+                        # PC/PCG: 順位を表示（色付き）
+                        rank_str = str(result.rank) if result.rank else "ー"
+                        item = self._set_item(row_idx, col_idx, rank_str)
+                        if result.rank:
+                            self._color_rank_cell(item, result.rank)
                     col_idx += 1
                     
                     # 得点
@@ -657,39 +984,38 @@ class ResultTableWidget(QWidget):
                 return self.calc_engine.race.goal_time[zekken][section]
         return "ー"
     
-    def _color_diff_cell(self, item, diff):
-        """差分セルに色を付ける"""
-        abs_diff = abs(diff)
+    def _color_diff_cell(self, item, diff, section_type="PC"):
+        """差分セルに色を付ける（PC/PCG用）
         
-        if abs_diff <= 0.5:
-            color = QColor(0, 150, 0)  # 濃い緑
-        elif abs_diff <= 1.0:
-            color = QColor(0, 200, 0)  # 緑
-        elif abs_diff <= 2.0:
-            color = QColor(150, 255, 150)  # 薄い緑
-        elif abs_diff <= 5.0:
-            color = QColor(255, 255, 0)  # 黄色
-        elif abs_diff <= 10.0:
-            color = QColor(255, 165, 0)  # オレンジ
-        else:
-            color = QColor(255, 100, 100)  # 赤
-        
-        item.setBackground(QBrush(color))
-    
-    def _color_rank_cell(self, item, rank):
-        """順位セルに色を付ける"""
-        if rank == 1:
-            color = QColor(255, 215, 0)  # 金色
-        elif rank == 2:
-            color = QColor(192, 192, 192)  # 銀色
-        elif rank == 3:
-            color = QColor(205, 127, 50)  # 銅色
-        elif rank <= 10:
-            color = QColor(173, 216, 230)  # 薄い青
-        else:
+        Args:
+            item: テーブルアイテム
+            diff: 差分（秒）
+            section_type: 区間タイプ（PC, PCG, CO）
+        """
+        # CO の場合は色付けしない（OK/NG表示で色付け）
+        if section_type == "CO":
             return
         
-        item.setBackground(QBrush(color))
+        # PC/PCG の場合: 1秒以上=赤、1秒以内=緑
+        abs_diff = abs(diff)
+        if abs_diff >= 1.0:
+            # 赤文字
+            item.setForeground(QColor("#D32F2F"))
+        else:
+            # 緑文字
+            item.setForeground(QColor("#388E3C"))
+    
+    def _color_rank_cell(self, item, rank):
+        """順位セルに色を付ける（1位のみ黄色背景）
+        
+        Args:
+            item: テーブルアイテム
+            rank: 順位
+        """
+        # 1位のみ黄色背景
+        if rank == 1:
+            color = QColor("#FFD700")  # 黄色
+            item.setBackground(QBrush(color))
 
 
 class SummaryTableWidget(QWidget):
@@ -699,6 +1025,7 @@ class SummaryTableWidget(QWidget):
         super().__init__(parent)
         self.calc_engine = None
         self.config_loader = None
+        self.app_config = None
         self.summary_df = None
         
         self._create_widgets()
@@ -715,14 +1042,25 @@ class SummaryTableWidget(QWidget):
         # テーブル
         self.table = QTableWidget()
         self.table.setSortingEnabled(False)
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["順位", "ゼッケン", "ドライバー名", "総合得点"])
+        # 列: Result, No, DriverName, CoDriverName, CarName, 車両製造年, CarClass, Point, H.C.L Point, Penalty(-), TotalPoint
+        self.table.setColumnCount(11)
+        self.table.setHorizontalHeaderLabels([
+            "Result", "No", "DriverName", "CoDriverName", "CarName",
+            "車両製造年", "CarClass", "Point", "H.C.L Point", "Penalty(-)", "TotalPoint"
+        ])
         
         # 列幅設定
-        self.table.setColumnWidth(0, 80)
-        self.table.setColumnWidth(1, 100)
-        self.table.setColumnWidth(2, 200)
-        self.table.setColumnWidth(3, 120)
+        self.table.setColumnWidth(0, 80)   # Result
+        self.table.setColumnWidth(1, 60)   # No
+        self.table.setColumnWidth(2, 120)  # DriverName
+        self.table.setColumnWidth(3, 120)  # CoDriverName
+        self.table.setColumnWidth(4, 150)  # CarName
+        self.table.setColumnWidth(5, 80)   # 車両製造年
+        self.table.setColumnWidth(6, 100)  # CarClass
+        self.table.setColumnWidth(7, 80)   # Point
+        self.table.setColumnWidth(8, 100)  # H.C.L Point
+        self.table.setColumnWidth(9, 100)  # Penalty(-)
+        self.table.setColumnWidth(10, 100) # TotalPoint
         
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
@@ -731,10 +1069,11 @@ class SummaryTableWidget(QWidget):
         
         self.setLayout(layout)
     
-    def set_data(self, calc_engine, config_loader):
+    def set_data(self, calc_engine, config_loader, app_config):
         """データをセット"""
         self.calc_engine = calc_engine
         self.config_loader = config_loader
+        self.app_config = app_config
         
         # OutputFormatterを使って総合順位を計算
         from output_formatter import OutputFormatter
@@ -753,13 +1092,20 @@ class SummaryTableWidget(QWidget):
         
         # データ入力
         for row_idx, row in self.summary_df.iterrows():
-            # 順位
-            rank_value = row['順位']
+            zekken = row['No']
+            
+            # ペナルティを取得
+            penalty = self.app_config.get_penalty(zekken) if self.app_config else 0
+            hcl_point = row['H.C.L Point']
+            total_point = hcl_point - penalty
+            
+            # Result (順位)
+            rank_value = row['Result']
             if pd.notna(rank_value):
                 if isinstance(rank_value, (int, float)):
                     rank_str = str(int(rank_value))
                 else:
-                    rank_str = str(rank_value)
+                    rank_str = str(rank_value)  # RIT/N.C./BLNK
             else:
                 rank_str = "-"
             
@@ -779,27 +1125,77 @@ class SummaryTableWidget(QWidget):
                     rank_item.setFont(QFont("", -1, QFont.Bold))
             self.table.setItem(row_idx, 0, rank_item)
             
-            # ゼッケン
-            zekken_item = QTableWidgetItem(str(row['ゼッケン']))
-            zekken_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_idx, 1, zekken_item)
+            # No (ゼッケン)
+            no_item = QTableWidgetItem(str(zekken))
+            no_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 1, no_item)
             
-            # ドライバー名
-            zekken = row['ゼッケン']
-            driver_name = ""
-            if zekken in self.config_loader.entries_dict:
-                driver_name = self.config_loader.entries_dict[zekken].get('DriverName', '')
-            if not driver_name:
-                driver_name = f"#{zekken}"
-            
-            driver_item = QTableWidgetItem(driver_name)
+            # DriverName
+            driver_item = QTableWidgetItem(str(row.get('DriverName', '')))
             driver_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 2, driver_item)
             
-            # 総合得点
-            score_item = QTableWidgetItem(str(row['総合得点']))
-            score_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_idx, 3, score_item)
+            # CoDriverName
+            codriver_item = QTableWidgetItem(str(row.get('CoDriverName', '')))
+            codriver_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 3, codriver_item)
+            
+            # CarName
+            car_item = QTableWidgetItem(str(row.get('CarName', '')))
+            car_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 4, car_item)
+            
+            # 車両製造年
+            year_item = QTableWidgetItem(str(row.get('車両製造年', '')))
+            year_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 5, year_item)
+            
+            # CarClass
+            class_item = QTableWidgetItem(str(row.get('CarClass', '')))
+            class_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 6, class_item)
+            
+            # Point (純粋な得点)
+            point_item = QTableWidgetItem(str(row.get('Point', 0)))
+            point_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 7, point_item)
+            
+            # H.C.L Point
+            hcl_item = QTableWidgetItem(str(hcl_point))
+            hcl_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 8, hcl_item)
+            
+            # Penalty(-) - 赤字表記（0の場合も表示）
+            penalty_item = QTableWidgetItem(str(int(penalty)))
+            penalty_item.setTextAlignment(Qt.AlignCenter)
+            if penalty > 0:
+                penalty_item.setForeground(QBrush(QColor(255, 0, 0)))  # 赤字
+            self.table.setItem(row_idx, 9, penalty_item)
+            
+            # TotalPoint
+            total_item = QTableWidgetItem(str(int(total_point)))
+            total_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 10, total_item)
+    
+    def set_class_data(self, calc_engine, config_loader, app_config, class_name):
+        """クラス別データをセット
+        
+        Args:
+            calc_engine: 計算エンジン
+            config_loader: 設定ローダー
+            app_config: アプリケーション設定
+            class_name: クラス名
+        """
+        self.calc_engine = calc_engine
+        self.config_loader = config_loader
+        self.app_config = app_config
+        
+        # OutputFormatterを使ってクラス別総合順位を計算
+        from output_formatter import OutputFormatter
+        self.output_formatter = OutputFormatter(calc_engine, config_loader)
+        self.summary_df = self.output_formatter.get_summary_by_class(class_name)
+        
+        self._populate_table()
 
 
 class MainWindow(QMainWindow):
@@ -817,6 +1213,9 @@ class MainWindow(QMainWindow):
         self.calc_engine = None
         self.output_formatter = None
         
+        # 自動読み込みフラグ
+        self.auto_load_attempted = False
+        
         self._create_widgets()
         self._create_menu()
         
@@ -827,16 +1226,131 @@ class MainWindow(QMainWindow):
         self.log(f"settings フォルダ: {self.app_config.settings_folder}")
         self.log(f"CO 点数: {self.app_config.co_point}")
         self.log("")
-        self.log("①〜④の順にボタンをクリックしてください")
+        
+        # 起動時に自動読み込みを試行
+        self._auto_load_on_startup()
         
         # 全画面表示
         self.showMaximized()
+    
+    def _auto_load_on_startup(self):
+        """起動時に設定ファイルを自動読み込み"""
+        import os
+        
+        self.log("【起動時自動読み込み】")
+        
+        # settings フォルダの存在チェック
+        if not os.path.exists(self.app_config.settings_folder):
+            self.log(f"⚠ settings フォルダが見つかりません: {self.app_config.settings_folder}")
+            self.log("パス設定画面を開きます...")
+            self.log("")
+            
+            # エラーメッセージを表示
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Warning)
+            msg.setWindowTitle("設定フォルダが見つかりません")
+            msg.setText("設定フォルダが見つかりません。\n\nパス設定画面を開きます。\n「サンプル設定ファイル生成」ボタンで\nサンプル設定を作成できます。")
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec()
+            
+            # パス設定画面を開く
+            self.set_folders()
+            return
+        
+        # 設定ファイルの自動読み込みを試行
+        try:
+            self.log("設定ファイルを自動読み込み中...")
+            self.config_loader = ConfigLoader(self.app_config.settings_folder)
+            success, msg = self.config_loader.load_all()
+            
+            if success:
+                self.log(f"✓ {msg}")
+                self.log(f"✓ ゼッケン数: {len(self.config_loader.entries_dict)}")
+                self.log(f"✓ 区間数: {len(self.config_loader.section_dict)}")
+                self.auto_load_attempted = True
+                
+                # 保存されたステータスを復元
+                self._restore_saved_status()
+                
+                self.log("")
+                self.log("✓ 設定ファイルの自動読み込みが完了しました")
+                self.log("次に ② Race読み込み をクリックしてください")
+            else:
+                self.log(f"⚠ 自動読み込み失敗: {msg}")
+                self.log("パス設定画面を開きます...")
+                
+                # エラーメッセージを表示
+                error_msg = QMessageBox()
+                error_msg.setIcon(QMessageBox.Warning)
+                error_msg.setWindowTitle("設定ファイルの読み込み失敗")
+                error_msg.setText(f"設定ファイルの読み込みに失敗しました。\n\n{msg}\n\nパス設定画面を開きます。")
+                error_msg.setStandardButtons(QMessageBox.Ok)
+                error_msg.exec()
+                
+                # パス設定画面を開く
+                self.set_folders()
+        except Exception as e:
+            self.log(f"⚠ 自動読み込みエラー: {str(e)}")
+            self.log("パス設定画面を開きます...")
+            
+            # エラーメッセージを表示
+            error_msg = QMessageBox()
+            error_msg.setIcon(QMessageBox.Warning)
+            error_msg.setWindowTitle("設定ファイルの読み込みエラー")
+            error_msg.setText(f"設定ファイルの読み込み中にエラーが発生しました。\n\n{str(e)}\n\nパス設定画面を開きます。")
+            error_msg.setStandardButtons(QMessageBox.Ok)
+            error_msg.exec()
+            
+            # パス設定画面を開く
+            self.set_folders()
+        
+        self.log("")
+    
+    def _restore_saved_status(self):
+        """保存されたステータス設定を復元"""
+        if not self.app_config.status_map and not self.app_config.final_status:
+            return
+        
+        status_count = 0
+        
+        # 区間ステータスの数をカウント
+        for zekken, sections in self.app_config.status_map.items():
+            status_count += len(sections)
+        
+        # 最終ステータスの数をカウント
+        status_count += len(self.app_config.final_status)
+        
+        if status_count > 0:
+            self.log(f"✓ 保存済みステータス設定を復元しました（{status_count}件）")
+
     
     def _create_widgets(self):
         """ウィジェット作成"""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
+        # メインレイアウト（縦方向）
+        central_layout = QVBoxLayout()
+        
+        # エラー表示エリア（最上部）
+        from PySide6.QtWidgets import QTextEdit
+        self.error_display = QTextEdit()
+        self.error_display.setReadOnly(True)
+        self.error_display.setMaximumHeight(120)
+        self.error_display.setStyleSheet("""
+            QTextEdit {
+                background-color: #FFF9E6;
+                color: #D32F2F;
+                border: 2px solid #FFB74D;
+                border-radius: 4px;
+                padding: 8px;
+                font-weight: bold;
+            }
+        """)
+        self.error_display.setVisible(False)  # 初期状態は非表示
+        central_layout.addWidget(self.error_display)
+        
+        # 横方向のメインレイアウト
         main_layout = QHBoxLayout()
         
         # 左側: ログパネル
@@ -904,9 +1418,14 @@ class MainWindow(QMainWindow):
         # 日別タブ（後で動的に生成）
         self.day_widgets = []
         
+        # クラス別総合成績タブ（後で動的に生成）
+        self.class_summary_tab = None
+        self.class_summary_widgets = {}
+        
         main_layout.addWidget(self.tab_widget, stretch=3)
         
-        central_widget.setLayout(main_layout)
+        central_layout.addLayout(main_layout)
+        central_widget.setLayout(central_layout)
     
     def _create_menu(self):
         """メニューバー作成"""
@@ -965,6 +1484,24 @@ class MainWindow(QMainWindow):
         """ログメッセージを表示"""
         self.log_text.append(message)
     
+    def _show_errors(self, errors: list):
+        """エラーメッセージを表示"""
+        if not errors:
+            self._hide_errors()
+            return
+        
+        error_text = "⚠️ エラー・警告が検出されました:\n\n"
+        for i, error in enumerate(errors, 1):
+            error_text += f"{i}. {error}\n\n"
+        
+        self.error_display.setText(error_text)
+        self.error_display.setVisible(True)
+    
+    def _hide_errors(self):
+        """エラー表示を非表示にする"""
+        self.error_display.setVisible(False)
+        self.error_display.clear()
+    
     def load_settings(self):
         """Setting 読み込み"""
         self.log("\n" + "=" * 50)
@@ -1017,6 +1554,25 @@ class MainWindow(QMainWindow):
             zekken_count = len(self.race_parser.get_all_zekkens())
             self.log(f"✓ 検出されたゼッケン数: {zekken_count}")
             self.log("")
+            
+            # データ検証を実行
+            self.log("データ検証を実行中...")
+            validation_errors = validate_all(
+                self.app_config.race_folder,
+                self.race_parser.results,
+                self.config_loader.section_list
+            )
+            
+            if validation_errors:
+                self.log(f"⚠ 警告: {len(validation_errors)}件のエラー/警告が検出されました")
+                self._show_errors(validation_errors)
+                for i, error in enumerate(validation_errors, 1):
+                    self.log(f"  警告{i}: {error.split(chr(10))[0]}")  # 最初の行のみログに表示
+            else:
+                self.log("✓ データ検証: 問題なし")
+                self._hide_errors()
+            
+            self.log("")
             self.log("Race データ読み込み完了！")
             self.log("次に ③ 計算実行 をクリックしてください")
             
@@ -1031,6 +1587,19 @@ class MainWindow(QMainWindow):
             self.log("⚠ Warning: 先に ①②を実行してください")
             return
         
+        # エラーがある場合は警告を表示
+        if self.error_display.isVisible():
+            reply = QMessageBox.question(
+                self,
+                "データ検証エラー",
+                "データ検証でエラー/警告が検出されています。\n\n計算を続行しますか？\n\n（エラーの詳細は画面上部を確認してください）",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                self.log("⚠ 計算を中止しました。エラーを修正してください。")
+                return
+        
         self.log("\n" + "=" * 50)
         self.log("【③ 計算実行】")
         self.log("=" * 50)
@@ -1042,8 +1611,20 @@ class MainWindow(QMainWindow):
                 self.app_config.co_point
             )
             
+            # 保存されたステータス設定を適用
             self.calc_engine.status_map = self.app_config.status_map.copy()
             self.calc_engine.final_status = self.app_config.final_status.copy()
+            
+            # ステータス適用状況をログに表示
+            status_count = sum(len(sections) for sections in self.calc_engine.status_map.values())
+            final_status_count = len(self.calc_engine.final_status)
+            
+            if status_count > 0 or final_status_count > 0:
+                self.log(f"✓ 保存済みステータス設定を適用中...")
+                if status_count > 0:
+                    self.log(f"  - 区間ステータス: {status_count}件")
+                if final_status_count > 0:
+                    self.log(f"  - 最終ステータス: {final_status_count}件")
             
             self.log("計算中...")
             self.calc_engine.calculate_all()
@@ -1075,7 +1656,7 @@ class MainWindow(QMainWindow):
         
         try:
             # 総合成績タブに表示
-            self.summary_widget.set_data(self.calc_engine, self.config_loader)
+            self.summary_widget.set_data(self.calc_engine, self.config_loader, self.app_config)
             self.log("✓ 総合成績を表示しました")
             
             # 全日タブに表示
@@ -1118,6 +1699,9 @@ class MainWindow(QMainWindow):
                         # 連続してセクションが見つからなくなったら終了
                         break
             
+            # クラス別総合成績タブを追加
+            self._update_class_summary_display()
+            
             self.log("✓ 結果を表示しました")
             self.log("")
             self.log("Excel/CSV 出力が可能です")
@@ -1125,6 +1709,52 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "エラー", f"結果表示中にエラーが発生しました:\n{str(e)}")
             self.log(f"❌ エラー: {str(e)}")
+    
+    def _update_class_summary_display(self):
+        """クラス別総合成績タブを更新"""
+        # 既存のクラス別総合成績タブを削除
+        if self.class_summary_tab is not None:
+            tab_index = self.tab_widget.indexOf(self.class_summary_tab)
+            if tab_index >= 0:
+                self.tab_widget.removeTab(tab_index)
+            self.class_summary_tab = None
+        
+        self.class_summary_widgets.clear()
+        
+        # すべてのクラスを取得
+        classes = self.output_formatter.get_all_classes()
+        
+        if not classes:
+            self.log("⚠ クラス情報が見つかりません")
+            return
+        
+        # クラス別総合成績タブを作成
+        self.class_summary_tab = QWidget()
+        class_summary_layout = QVBoxLayout(self.class_summary_tab)
+        
+        # クラスごとのサブタブを作成
+        class_tab_widget = QTabWidget()
+        
+        # 「全クラス」タブ（全体表示）
+        all_class_widget = SummaryTableWidget()
+        all_class_widget.set_data(self.calc_engine, self.config_loader, self.app_config)
+        class_tab_widget.addTab(all_class_widget, "全クラス")
+        self.class_summary_widgets['全クラス'] = all_class_widget
+        
+        # 各クラスのタブ
+        for class_name in classes:
+            widget = SummaryTableWidget()
+            widget.set_class_data(self.calc_engine, self.config_loader, self.app_config, class_name)
+            class_tab_widget.addTab(widget, class_name)
+            self.class_summary_widgets[class_name] = widget
+            self.log(f"✓ クラス別総合成績: {class_name}")
+        
+        class_summary_layout.addWidget(class_tab_widget)
+        
+        # メインタブに追加（総合成績と区間結果の間、インデックス1）
+        self.tab_widget.insertTab(1, self.class_summary_tab, "クラス別総合成績")
+        
+        self.log(f"✓ クラス別総合成績を表示しました（{len(classes)}クラス）")
     
     def export_excel(self):
         """Excel出力"""
@@ -1217,14 +1847,20 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle("フォルダ設定")
         dialog.setMinimumWidth(600)
         
-        layout = QFormLayout()
+        layout = QVBoxLayout()
+        
+        # フォーム部分
+        form_layout = QFormLayout()
         
         race_edit = QLineEdit(self.app_config.race_folder)
-        layout.addRow("race フォルダ:", race_edit)
+        form_layout.addRow("race フォルダ:", race_edit)
         
         settings_edit = QLineEdit(self.app_config.settings_folder)
-        layout.addRow("settings フォルダ:", settings_edit)
+        form_layout.addRow("settings フォルダ:", settings_edit)
         
+        layout.addLayout(form_layout)
+        
+        # ボタン部分
         button_layout = QHBoxLayout()
         
         save_btn = QPushButton("保存")
@@ -1245,7 +1881,79 @@ class MainWindow(QMainWindow):
         cancel_btn.clicked.connect(dialog.reject)
         button_layout.addWidget(cancel_btn)
         
-        layout.addRow(button_layout)
+        layout.addLayout(button_layout)
+        
+        # サンプル生成ボタン
+        sample_btn = QPushButton("サンプル設定ファイル生成")
+        sample_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        
+        def generate_samples():
+            import os
+            
+            # 確認ダイアログ
+            reply = QMessageBox.question(
+                dialog,
+                "サンプル生成確認",
+                "サンプル設定ファイルを生成しますか？\n\n"
+                "アプリと同じフォルダに settings フォルダを作成し、\n"
+                "以下の3つのファイルが生成されます:\n"
+                "  - entries_sample.csv\n"
+                "  - point_sample.csv\n"
+                "  - section_sample.csv\n\n"
+                "既存のファイルがある場合は上書きされます。",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                try:
+                    # アプリの実行ディレクトリを取得
+                    if getattr(sys, 'frozen', False):
+                        # PyInstallerでビルドされた場合
+                        base_path = os.path.dirname(sys.executable)
+                    else:
+                        # 開発環境の場合
+                        base_path = os.path.dirname(os.path.abspath(__file__))
+                    
+                    # サンプルファイルを生成
+                    if generate_sample_files(base_path):
+                        settings_path = os.path.join(base_path, 'settings')
+                        
+                        # 成功メッセージ
+                        QMessageBox.information(
+                            dialog,
+                            "成功",
+                            f"サンプルファイルを生成しました。\n\n"
+                            f"場所: {settings_path}\n\n"
+                            f"パスを自動的に設定しました。"
+                        )
+                        
+                        # パスを自動的にセット
+                        self.app_config.settings_folder = settings_path
+                        self.app_config.save()
+                        
+                        self.log(f"✓ サンプルファイルを生成しました: {settings_path}")
+                        self.log(f"✓ settings フォルダのパスを設定しました")
+                        
+                        # ダイアログを閉じる
+                        dialog.accept()
+                    else:
+                        QMessageBox.critical(
+                            dialog,
+                            "エラー",
+                            "サンプルファイルの生成に失敗しました。"
+                        )
+                        self.log("❌ サンプルファイルの生成に失敗しました")
+                        
+                except Exception as e:
+                    QMessageBox.critical(
+                        dialog,
+                        "エラー",
+                        f"サンプルファイルの生成中にエラーが発生しました:\n{str(e)}"
+                    )
+                    self.log(f"❌ サンプルファイル生成エラー: {str(e)}")
+        
+        sample_btn.clicked.connect(generate_samples)
+        layout.addWidget(sample_btn)
         
         dialog.setLayout(layout)
         dialog.exec()
