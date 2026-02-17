@@ -43,10 +43,18 @@ class OutputFormatter:
                 
                 # ステータスがある場合
                 if result.status:
-                    row_data[f'{section}_通過時間'] = result.status
-                    row_data[f'{section}_差分'] = result.status
-                    row_data[f'{section}_順位'] = result.status
-                    row_data[f'{section}_得点'] = 0
+                    if result.status == "N.C.":
+                        # N.C.の場合: タイム表示あり、差分算出、順位は除外
+                        row_data[f'{section}_通過時間'] = self.calc.format_time(result.passage_time) if result.passage_time else 'ー'
+                        row_data[f'{section}_差分'] = self.calc.format_diff(result.diff) if result.diff is not None else 'ー'
+                        row_data[f'{section}_順位'] = result.status
+                        row_data[f'{section}_得点'] = result.point
+                    else:
+                        # RIT, BLNKの場合: タイム表示無し
+                        row_data[f'{section}_通過時間'] = result.status
+                        row_data[f'{section}_差分'] = result.status
+                        row_data[f'{section}_順位'] = result.status
+                        row_data[f'{section}_得点'] = 0
                 else:
                     # 通過時間
                     row_data[f'{section}_通過時間'] = self.calc.format_time(result.passage_time)

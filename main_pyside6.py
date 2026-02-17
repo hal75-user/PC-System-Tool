@@ -836,9 +836,42 @@ class ResultTableWidget(QWidget):
                 
                 if result.status:
                     # ステータスあり
-                    for _ in range(6):
+                    if result.status == "N.C.":
+                        # N.C.の場合: タイム表示あり、差分算出、順位は除外
+                        # START
+                        start_time = self._get_time_str(zekken, section, "START")
+                        self._set_item(row_idx, col_idx, start_time)
+                        col_idx += 1
+                        
+                        # GOAL
+                        goal_time = self._get_time_str(zekken, section, "GOAL")
+                        self._set_item(row_idx, col_idx, goal_time)
+                        col_idx += 1
+                        
+                        # 走行時間
+                        passage_str = self.calc_engine.format_time(result.passage_time) if result.passage_time else "ー"
+                        self._set_item(row_idx, col_idx, passage_str)
+                        col_idx += 1
+                        
+                        # 差分（色付き）- 秒単位で±00.00形式
+                        diff_str = self._format_diff_simple(result.diff) if result.diff is not None else "ー"
+                        item = self._set_item(row_idx, col_idx, diff_str)
+                        if result.diff is not None:
+                            self._color_diff_cell(item, result.diff)
+                        col_idx += 1
+                        
+                        # 順位: N.C.を表示
                         self._set_item(row_idx, col_idx, result.status)
                         col_idx += 1
+                        
+                        # 得点
+                        self._set_item(row_idx, col_idx, str(result.point))
+                        col_idx += 1
+                    else:
+                        # RIT, BLNKの場合: タイム表示無し、すべてステータス表示
+                        for _ in range(6):
+                            self._set_item(row_idx, col_idx, result.status)
+                            col_idx += 1
                 else:
                     # START
                     start_time = self._get_time_str(zekken, section, "START")
@@ -1107,8 +1140,8 @@ class SummaryTableWidget(QWidget):
             hcl_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 8, hcl_item)
             
-            # Penalty(-) - 赤字表記
-            penalty_item = QTableWidgetItem(str(int(penalty)) if penalty > 0 else "")
+            # Penalty(-) - 赤字表記（0の場合も表示）
+            penalty_item = QTableWidgetItem(str(int(penalty)))
             penalty_item.setTextAlignment(Qt.AlignCenter)
             if penalty > 0:
                 penalty_item.setForeground(QBrush(QColor(255, 0, 0)))  # 赤字
