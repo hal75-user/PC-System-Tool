@@ -99,37 +99,69 @@ class OutputFormatter:
             return False
     
     def get_summary_dataframe(self) -> pd.DataFrame:
-        """サマリー用の DataFrame を作成（総合順位）"""
+        """サマリー用の DataFrame を作成（総合順位）
+        
+        列:
+        - Result (順位)
+        - No (ゼッケン)
+        - DriverName
+        - CoDriverName
+        - CarName
+        - 車両製造年
+        - CarClass
+        - Point (純粋な得点)
+        - H.C.L Point ((PC+PCG)*係数*年齢係数+CO)
+        - Penalty(-) (ペナルティ点数)
+        - TotalPoint (H.C.L. Point - Penalty)
+        """
         # ゼッケンと総合得点のリストを作成
         data = []
         
         for zekken in sorted(self.calc.results.keys()):
+            # entries 情報取得
+            entry = self.config.entries_dict.get(zekken, {})
+            
+            # 得点計算
+            pure_score = self.calc.get_pure_score(zekken)
+            hcl_score = self.calc.get_hcl_score(zekken)
+            
+            # ペナルティ取得（AppConfigから）
+            penalty = 0  # デフォルト値、実際の値は後でAppConfigから取得される
+            
+            # TotalPoint計算
+            total_point = hcl_score - penalty
+            
             # 最終結果ステータスを確認
             if zekken in self.calc.final_status:
                 status = self.calc.final_status[zekken]
-                data.append({
-                    'ゼッケン': zekken,
-                    '総合得点': 0,
-                    '順位': status
-                })
+                rank = status  # ステータスを順位として記録（後で順位付けから除外される）
             else:
-                total_score = self.calc.get_total_score(zekken)
-                data.append({
-                    'ゼッケン': zekken,
-                    '総合得点': total_score,
-                    '順位': None
-                })
+                rank = None
+            
+            data.append({
+                'Result': rank,  # 順位（後で計算）
+                'No': zekken,
+                'DriverName': entry.get('DriverName', ''),
+                'CoDriverName': entry.get('CoDriverName', ''),
+                'CarName': entry.get('CarName', ''),
+                '車両製造年': entry.get('CarYear', ''),
+                'CarClass': entry.get('CarClass', ''),
+                'Point': pure_score,
+                'H.C.L Point': hcl_score,
+                'Penalty(-)': penalty,  # 後で更新される
+                'TotalPoint': total_point  # 後で更新される
+            })
         
         # DataFrame 作成
         df = pd.DataFrame(data)
         
-        # ステータスがないものを得点順にソート
-        normal_df = df[df['順位'].isna()].copy()
-        normal_df = normal_df.sort_values('総合得点', ascending=False)
-        normal_df['順位'] = range(1, len(normal_df) + 1)
+        # ステータスがないものを得点順にソート（TotalPointで）
+        normal_df = df[df['Result'].isna()].copy()
+        normal_df = normal_df.sort_values('H.C.L Point', ascending=False)
+        normal_df['Result'] = range(1, len(normal_df) + 1)
         
         # ステータスがあるものと結合
-        status_df = df[~df['順位'].isna()]
+        status_df = df[~df['Result'].isna()]
         
         result_df = pd.concat([normal_df, status_df], ignore_index=True)
         return result_df

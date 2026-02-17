@@ -307,12 +307,12 @@ class StatusMatrixTabWidget(QWidget):
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
         
         # ヘッダー
-        headers = ["ゼッケン"] + self.sections + ["Total Result", "ペナルティ"]
+        headers = ["ゼッケン"] + self.sections + ["ペナルティ", "Total Result"]
         self.table.setHorizontalHeaderLabels(headers)
         
-        # Total Result列とペナルティ列のインデックスを記憶
-        self.total_result_col = len(self.sections) + 1
-        self.penalty_col = len(self.sections) + 2
+        # ペナルティ列とTotal Result列のインデックスを記憶
+        self.penalty_col = len(self.sections) + 1
+        self.total_result_col = len(self.sections) + 2
         
         # データ入力
         for row_idx, zekken in enumerate(self.all_zekkens):
@@ -329,18 +329,18 @@ class StatusMatrixTabWidget(QWidget):
                 item.setData(Qt.UserRole, (zekken, section))
                 self.table.setItem(row_idx, col_idx, item)
             
-            # Total Result列（ステータス入力）
-            total_result_item = QTableWidgetItem("")
-            total_result_item.setTextAlignment(Qt.AlignCenter)
-            total_result_item.setData(Qt.UserRole, ("total_result", zekken))
-            self.table.setItem(row_idx, self.total_result_col, total_result_item)
-            
             # ペナルティ列（数字入力）
             penalty_item = QTableWidgetItem("")
             penalty_item.setTextAlignment(Qt.AlignCenter)
             penalty_item.setData(Qt.UserRole, ("penalty", zekken))
             penalty_item.setBackground(QBrush(QColor(255, 250, 205)))  # 淡い黄色で区別
             self.table.setItem(row_idx, self.penalty_col, penalty_item)
+            
+            # Total Result列（ステータス入力）
+            total_result_item = QTableWidgetItem("")
+            total_result_item.setTextAlignment(Qt.AlignCenter)
+            total_result_item.setData(Qt.UserRole, ("total_result", zekken))
+            self.table.setItem(row_idx, self.total_result_col, total_result_item)
         
         scroll.setWidget(self.table)
         layout.addWidget(scroll)
@@ -967,6 +967,7 @@ class SummaryTableWidget(QWidget):
         super().__init__(parent)
         self.calc_engine = None
         self.config_loader = None
+        self.app_config = None
         self.summary_df = None
         
         self._create_widgets()
@@ -983,14 +984,25 @@ class SummaryTableWidget(QWidget):
         # テーブル
         self.table = QTableWidget()
         self.table.setSortingEnabled(False)
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["順位", "ゼッケン", "ドライバー名", "総合得点"])
+        # 列: Result, No, DriverName, CoDriverName, CarName, 車両製造年, CarClass, Point, H.C.L Point, Penalty(-), TotalPoint
+        self.table.setColumnCount(11)
+        self.table.setHorizontalHeaderLabels([
+            "Result", "No", "DriverName", "CoDriverName", "CarName",
+            "車両製造年", "CarClass", "Point", "H.C.L Point", "Penalty(-)", "TotalPoint"
+        ])
         
         # 列幅設定
-        self.table.setColumnWidth(0, 80)
-        self.table.setColumnWidth(1, 100)
-        self.table.setColumnWidth(2, 200)
-        self.table.setColumnWidth(3, 120)
+        self.table.setColumnWidth(0, 80)   # Result
+        self.table.setColumnWidth(1, 60)   # No
+        self.table.setColumnWidth(2, 120)  # DriverName
+        self.table.setColumnWidth(3, 120)  # CoDriverName
+        self.table.setColumnWidth(4, 150)  # CarName
+        self.table.setColumnWidth(5, 80)   # 車両製造年
+        self.table.setColumnWidth(6, 100)  # CarClass
+        self.table.setColumnWidth(7, 80)   # Point
+        self.table.setColumnWidth(8, 100)  # H.C.L Point
+        self.table.setColumnWidth(9, 100)  # Penalty(-)
+        self.table.setColumnWidth(10, 100) # TotalPoint
         
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
@@ -999,10 +1011,11 @@ class SummaryTableWidget(QWidget):
         
         self.setLayout(layout)
     
-    def set_data(self, calc_engine, config_loader):
+    def set_data(self, calc_engine, config_loader, app_config):
         """データをセット"""
         self.calc_engine = calc_engine
         self.config_loader = config_loader
+        self.app_config = app_config
         
         # OutputFormatterを使って総合順位を計算
         from output_formatter import OutputFormatter
@@ -1021,13 +1034,20 @@ class SummaryTableWidget(QWidget):
         
         # データ入力
         for row_idx, row in self.summary_df.iterrows():
-            # 順位
-            rank_value = row['順位']
+            zekken = row['No']
+            
+            # ペナルティを取得
+            penalty = self.app_config.get_penalty(zekken) if self.app_config else 0
+            hcl_point = row['H.C.L Point']
+            total_point = hcl_point - penalty
+            
+            # Result (順位)
+            rank_value = row['Result']
             if pd.notna(rank_value):
                 if isinstance(rank_value, (int, float)):
                     rank_str = str(int(rank_value))
                 else:
-                    rank_str = str(rank_value)
+                    rank_str = str(rank_value)  # RIT/N.C./BLNK
             else:
                 rank_str = "-"
             
@@ -1047,27 +1067,57 @@ class SummaryTableWidget(QWidget):
                     rank_item.setFont(QFont("", -1, QFont.Bold))
             self.table.setItem(row_idx, 0, rank_item)
             
-            # ゼッケン
-            zekken_item = QTableWidgetItem(str(row['ゼッケン']))
-            zekken_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_idx, 1, zekken_item)
+            # No (ゼッケン)
+            no_item = QTableWidgetItem(str(zekken))
+            no_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 1, no_item)
             
-            # ドライバー名
-            zekken = row['ゼッケン']
-            driver_name = ""
-            if zekken in self.config_loader.entries_dict:
-                driver_name = self.config_loader.entries_dict[zekken].get('DriverName', '')
-            if not driver_name:
-                driver_name = f"#{zekken}"
-            
-            driver_item = QTableWidgetItem(driver_name)
+            # DriverName
+            driver_item = QTableWidgetItem(str(row.get('DriverName', '')))
             driver_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 2, driver_item)
             
-            # 総合得点
-            score_item = QTableWidgetItem(str(row['総合得点']))
-            score_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_idx, 3, score_item)
+            # CoDriverName
+            codriver_item = QTableWidgetItem(str(row.get('CoDriverName', '')))
+            codriver_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 3, codriver_item)
+            
+            # CarName
+            car_item = QTableWidgetItem(str(row.get('CarName', '')))
+            car_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 4, car_item)
+            
+            # 車両製造年
+            year_item = QTableWidgetItem(str(row.get('車両製造年', '')))
+            year_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 5, year_item)
+            
+            # CarClass
+            class_item = QTableWidgetItem(str(row.get('CarClass', '')))
+            class_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 6, class_item)
+            
+            # Point (純粋な得点)
+            point_item = QTableWidgetItem(str(row.get('Point', 0)))
+            point_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 7, point_item)
+            
+            # H.C.L Point
+            hcl_item = QTableWidgetItem(str(hcl_point))
+            hcl_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 8, hcl_item)
+            
+            # Penalty(-) - 赤字表記
+            penalty_item = QTableWidgetItem(str(int(penalty)) if penalty > 0 else "")
+            penalty_item.setTextAlignment(Qt.AlignCenter)
+            if penalty > 0:
+                penalty_item.setForeground(QBrush(QColor(255, 0, 0)))  # 赤字
+            self.table.setItem(row_idx, 9, penalty_item)
+            
+            # TotalPoint
+            total_item = QTableWidgetItem(str(int(total_point)))
+            total_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 10, total_item)
 
 
 class MainWindow(QMainWindow):
@@ -1418,7 +1468,7 @@ class MainWindow(QMainWindow):
         
         try:
             # 総合成績タブに表示
-            self.summary_widget.set_data(self.calc_engine, self.config_loader)
+            self.summary_widget.set_data(self.calc_engine, self.config_loader, self.app_config)
             self.log("✓ 総合成績を表示しました")
             
             # 全日タブに表示

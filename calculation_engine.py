@@ -239,11 +239,9 @@ class CalculationEngine:
         """総合得点を計算
         
         総合得点 = (PC + PCG) * 係数 * 年齢係数 + CO
-        """
-        # 最終結果ステータスチェック
-        if zekken in self.final_status:
-            return 0
         
+        注: final_statusがある場合でも得点は計算される（順位付けから除外されるのみ）
+        """
         # entries 情報取得
         entry = self.config.entries_dict.get(zekken)
         if entry is None:
@@ -269,6 +267,27 @@ class CalculationEngine:
         # 総合得点計算
         total = int(pc_pcg_total * coef * age_coef + co_total)
         return total
+    
+    def get_pure_score(self, zekken: int) -> int:
+        """純粋な得点を計算（係数をかける前）
+        
+        Point = PC + PCG + CO
+        """
+        if zekken not in self.results:
+            return 0
+        
+        total = 0
+        for section_name, result in self.results[zekken].items():
+            total += result.point
+        
+        return total
+    
+    def get_hcl_score(self, zekken: int) -> int:
+        """H.C.L. Point を計算
+        
+        H.C.L. Point = (PC + PCG) * 係数 * 年齢係数 + CO
+        """
+        return self.get_total_score(zekken)
     
     def format_time(self, seconds: Optional[float]) -> str:
         """秒を時刻文字列にフォーマット（HH:MM:SS.SS）"""
