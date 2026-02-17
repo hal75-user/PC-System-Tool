@@ -21,6 +21,7 @@ from calculation_engine import CalculationEngine
 from output_formatter import OutputFormatter
 from app_config import AppConfig
 from logging_config import init_app_logging, get_logger
+from sample_generator import generate_sample_files
 
 # ロギング初期化
 init_app_logging()
@@ -1217,8 +1218,19 @@ class MainWindow(QMainWindow):
         # settings フォルダの存在チェック
         if not os.path.exists(self.app_config.settings_folder):
             self.log(f"⚠ settings フォルダが見つかりません: {self.app_config.settings_folder}")
-            self.log("フォルダを設定してから ① Setting読み込み をクリックしてください")
+            self.log("パス設定画面を開きます...")
             self.log("")
+            
+            # エラーメッセージを表示
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Warning)
+            msg.setWindowTitle("設定フォルダが見つかりません")
+            msg.setText("設定フォルダが見つかりません。\n\nパス設定画面を開きます。\n「サンプル設定ファイル生成」ボタンで\nサンプル設定を作成できます。")
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec()
+            
+            # パス設定画面を開く
+            self.set_folders()
             return
         
         # 設定ファイルの自動読み込みを試行
@@ -1241,10 +1253,32 @@ class MainWindow(QMainWindow):
                 self.log("次に ② Race読み込み をクリックしてください")
             else:
                 self.log(f"⚠ 自動読み込み失敗: {msg}")
-                self.log("手動で ① Setting読み込み をクリックしてください")
+                self.log("パス設定画面を開きます...")
+                
+                # エラーメッセージを表示
+                error_msg = QMessageBox()
+                error_msg.setIcon(QMessageBox.Warning)
+                error_msg.setWindowTitle("設定ファイルの読み込み失敗")
+                error_msg.setText(f"設定ファイルの読み込みに失敗しました。\n\n{msg}\n\nパス設定画面を開きます。")
+                error_msg.setStandardButtons(QMessageBox.Ok)
+                error_msg.exec()
+                
+                # パス設定画面を開く
+                self.set_folders()
         except Exception as e:
             self.log(f"⚠ 自動読み込みエラー: {str(e)}")
-            self.log("手動で ① Setting読み込み をクリックしてください")
+            self.log("パス設定画面を開きます...")
+            
+            # エラーメッセージを表示
+            error_msg = QMessageBox()
+            error_msg.setIcon(QMessageBox.Warning)
+            error_msg.setWindowTitle("設定ファイルの読み込みエラー")
+            error_msg.setText(f"設定ファイルの読み込み中にエラーが発生しました。\n\n{str(e)}\n\nパス設定画面を開きます。")
+            error_msg.setStandardButtons(QMessageBox.Ok)
+            error_msg.exec()
+            
+            # パス設定画面を開く
+            self.set_folders()
         
         self.log("")
     
@@ -1716,14 +1750,20 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle("フォルダ設定")
         dialog.setMinimumWidth(600)
         
-        layout = QFormLayout()
+        layout = QVBoxLayout()
+        
+        # フォーム部分
+        form_layout = QFormLayout()
         
         race_edit = QLineEdit(self.app_config.race_folder)
-        layout.addRow("race フォルダ:", race_edit)
+        form_layout.addRow("race フォルダ:", race_edit)
         
         settings_edit = QLineEdit(self.app_config.settings_folder)
-        layout.addRow("settings フォルダ:", settings_edit)
+        form_layout.addRow("settings フォルダ:", settings_edit)
         
+        layout.addLayout(form_layout)
+        
+        # ボタン部分
         button_layout = QHBoxLayout()
         
         save_btn = QPushButton("保存")
@@ -1744,7 +1784,79 @@ class MainWindow(QMainWindow):
         cancel_btn.clicked.connect(dialog.reject)
         button_layout.addWidget(cancel_btn)
         
-        layout.addRow(button_layout)
+        layout.addLayout(button_layout)
+        
+        # サンプル生成ボタン
+        sample_btn = QPushButton("サンプル設定ファイル生成")
+        sample_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        
+        def generate_samples():
+            import os
+            
+            # 確認ダイアログ
+            reply = QMessageBox.question(
+                dialog,
+                "サンプル生成確認",
+                "サンプル設定ファイルを生成しますか？\n\n"
+                "アプリと同じフォルダに settings フォルダを作成し、\n"
+                "以下の3つのファイルが生成されます:\n"
+                "  - entries_sample.csv\n"
+                "  - point_sample.csv\n"
+                "  - section_sample.csv\n\n"
+                "既存のファイルがある場合は上書きされます。",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                try:
+                    # アプリの実行ディレクトリを取得
+                    if getattr(sys, 'frozen', False):
+                        # PyInstallerでビルドされた場合
+                        base_path = os.path.dirname(sys.executable)
+                    else:
+                        # 開発環境の場合
+                        base_path = os.path.dirname(os.path.abspath(__file__))
+                    
+                    # サンプルファイルを生成
+                    if generate_sample_files(base_path):
+                        settings_path = os.path.join(base_path, 'settings')
+                        
+                        # 成功メッセージ
+                        QMessageBox.information(
+                            dialog,
+                            "成功",
+                            f"サンプルファイルを生成しました。\n\n"
+                            f"場所: {settings_path}\n\n"
+                            f"パスを自動的に設定しました。"
+                        )
+                        
+                        # パスを自動的にセット
+                        self.app_config.settings_folder = settings_path
+                        self.app_config.save()
+                        
+                        self.log(f"✓ サンプルファイルを生成しました: {settings_path}")
+                        self.log(f"✓ settings フォルダのパスを設定しました")
+                        
+                        # ダイアログを閉じる
+                        dialog.accept()
+                    else:
+                        QMessageBox.critical(
+                            dialog,
+                            "エラー",
+                            "サンプルファイルの生成に失敗しました。"
+                        )
+                        self.log("❌ サンプルファイルの生成に失敗しました")
+                        
+                except Exception as e:
+                    QMessageBox.critical(
+                        dialog,
+                        "エラー",
+                        f"サンプルファイルの生成中にエラーが発生しました:\n{str(e)}"
+                    )
+                    self.log(f"❌ サンプルファイル生成エラー: {str(e)}")
+        
+        sample_btn.clicked.connect(generate_samples)
+        layout.addWidget(sample_btn)
         
         dialog.setLayout(layout)
         dialog.exec()
