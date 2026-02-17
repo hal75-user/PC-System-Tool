@@ -48,21 +48,21 @@ def generate_sample_files(base_path: str) -> bool:
 
 
 def _create_sample_entries(file_path: str):
-    """Create sample entries CSV file with anonymous data."""
-    headers = ['No', 'DriverName', 'CoDriverName', 'CarName', '車両製造年', 'CarClass', '係数', '年齢係数']
+    """Create sample entries CSV file with real-looking data."""
+    headers = ['No', 'DriverName', 'DriverAge', 'CoDriverName', 'CoDriverAge', 'CarName', '係数', '車製造年', 'CarClass', '年齢係数']
     
-    # Sample data with 10 entries, 2 classes
+    # Sample data with 10 entries, based on actual format
     data = [
-        ['1', 'driver1', 'codriver1', 'car1', '2020', 'A', '1.0', '1.0'],
-        ['2', 'driver2', 'codriver2', 'car2', '2019', 'A', '1.0', '1.0'],
-        ['3', 'driver3', 'codriver3', 'car3', '2021', 'A', '1.0', '1.0'],
-        ['4', 'driver4', 'codriver4', 'car4', '2018', 'A', '1.0', '1.0'],
-        ['5', 'driver5', 'codriver5', 'car5', '2022', 'A', '1.0', '1.0'],
-        ['6', 'driver6', 'codriver6', 'car6', '2020', 'A', '1.0', '1.0'],
-        ['7', 'driver7', 'codriver7', 'car7', '2019', 'B', '1.0', '1.0'],
-        ['8', 'driver8', 'codriver8', 'car8', '2021', 'B', '1.0', '1.0'],
-        ['9', 'driver9', 'codriver9', 'car9', '2020', 'B', '1.0', '1.0'],
-        ['10', 'driver10', 'codriver10', 'car10', '2022', 'B', '1.0', '1.0'],
+        ['1', '竹元 京人', '25843', '竹元 淳子', '25794', 'BUGATTI T40', '1.75', '1928', 'A', '1'],
+        ['2', '佐藤公夫', '27470', '佐藤 喜美子', '27381', 'BUGATTI T35B', '1.75', '1927', 'A', '1'],
+        ['3', '遊佐 勇人', '21879', '遊佐 直子', '20571', 'ASTON MARTIN INTERNATIONAL', '1.65', '1930', 'B', '1'],
+        ['4', '小宮 延雄', '27542', '小宮 芳子', '25970', 'MG N TYPE MAGNETT', '1.65', '1935', 'B', '1'],
+        ['5', '比嘉成夫', '24191', '比嘉 祐太郎', '13097', 'FIAT 508S BALILLA COPPA D\'ORO', '1.6', '1935', 'B', '1'],
+        ['6', '疋野 繁', '26118', '疋野 則子', '24328', 'LAGONDA RAPIER', '1.65', '1935', 'B', '1'],
+        ['7', '中島 照夫', '23992', '中島 房子', '21508', 'JAGUAR SS100', '1.55', '1936', 'B', '1'],
+        ['8', '加藤 佳支信', '22265', '加藤 三美子', '22310', 'MG TA MIDGET', '1.65', '1936', 'B', '1'],
+        ['9', '平野 喜正', '26614', '平野 三枝子', '26609', 'MORGAN 4/4 FLAT RADIATOR', '1.55', '1937', 'B', '1'],
+        ['10', '竹内 眞哉', '26645', '桶谷 渡', '21949', 'ALVIS SPEED 25 VANDEN PLAS TOURER', '1.65', '1937', 'B', '1'],
     ]
     
     with open(file_path, 'w', newline='', encoding='utf-8') as f:
@@ -74,15 +74,27 @@ def _create_sample_entries(file_path: str):
 
 
 def _create_sample_point(file_path: str):
-    """Create sample point configuration CSV file."""
-    headers = ['Point', 'CO点数']
+    """Create sample point configuration CSV file - exact copy of actual data."""
+    headers = ['Order', 'Point']
     
-    # Standard point types
-    data = [
-        ['PC', '100'],
-        ['PCG', '80'],
-        ['CO', '50'],
+    # Point distribution matching actual LFAT2025 data (1st to 78th place)
+    data = []
+    points_list = [
+        500, 480, 460, 440, 420, 400, 380, 360, 340, 320,  # 1-10
+        300, 280, 260, 240, 220, 200, 190, 180, 170, 160,  # 11-20
+        150, 140, 130, 120, 110, 105, 100, 95, 90, 85,     # 21-30
+        80, 75, 70, 65, 60, 57, 54, 51, 48, 45,            # 31-40
+        40, 38, 36, 34, 32, 30, 28, 26, 24, 22,            # 41-50
+        20, 18, 16, 14, 12, 10, 8, 6, 4, 2,                # 51-60
     ]
+    
+    # Add points for positions 1-60
+    for i, pts in enumerate(points_list, 1):
+        data.append([str(i), str(pts)])
+    
+    # Add positions 61-78 with 0 points
+    for i in range(61, 79):
+        data.append([str(i), '0'])
     
     with open(file_path, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
@@ -93,17 +105,21 @@ def _create_sample_point(file_path: str):
 
 
 def _create_sample_section(file_path: str):
-    """Create sample section configuration CSV file."""
-    headers = ['Section', 'Point', '標準', '許容', 'GOAL', 'DAY', 'GROUP']
+    """Create sample section configuration CSV file with real location data."""
+    headers = ['type', 'section', 'name', 'time', 'GROUP', 'DAY']
     
-    # 6 sections: 2 PC, 2 PCG, 2 CO for day 1
+    # Sample sections based on actual LFAT2025 format
     data = [
-        ['PC1', 'PC', '09:00:00', '00:10:00', '09:30:00', '1', '1'],
-        ['PC2', 'PCG', '10:00:00', '00:15:00', '10:30:00', '1', '1'],
-        ['CO1', 'CO', '11:00:00', '00:05:00', '11:20:00', '1', '1'],
-        ['PC3', 'PC', '12:00:00', '00:10:00', '12:30:00', '1', '1'],
-        ['PC4', 'PCG', '13:00:00', '00:15:00', '13:30:00', '1', '1'],
-        ['CO2', 'CO', '14:00:00', '00:05:00', '14:30:00', '1', '1'],
+        ['CO', 'CO1', '那須野が原公園', '12600', '1', '1'],
+        ['PC', 'PC1', 'つくるまサーキット', '25', '2', '1'],
+        ['PC', 'PC2', 'つくるまサーキット', '19', '2', '1'],
+        ['PC', 'PC3', 'つくるまサーキット', '12', '2', '1'],
+        ['PC', 'PC4', 'つくるまサーキット', '32', '2', '1'],
+        ['PC', 'PC5', 'つくるまサーキット', '16', '2', '1'],
+        ['PCG', 'PCG1', 'つくるまサーキット', '104', '2', '1'],
+        ['PC', 'PC6', '公道', '330', '3', '1'],
+        ['PC', 'PC7', '公道', '19', '3', '1'],
+        ['PC', 'PC8', '公道', '11', '3', '1'],
     ]
     
     with open(file_path, 'w', newline='', encoding='utf-8') as f:
