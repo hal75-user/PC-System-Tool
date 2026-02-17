@@ -22,6 +22,7 @@ from output_formatter import OutputFormatter
 from app_config import AppConfig
 from logging_config import init_app_logging, get_logger
 from sample_generator import generate_sample_files
+from data_validator import validate_all
 
 # ロギング初期化
 init_app_logging()
@@ -1305,6 +1306,28 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
+        # メインレイアウト（縦方向）
+        central_layout = QVBoxLayout()
+        
+        # エラー表示エリア（最上部）
+        from PySide6.QtWidgets import QTextEdit
+        self.error_display = QTextEdit()
+        self.error_display.setReadOnly(True)
+        self.error_display.setMaximumHeight(120)
+        self.error_display.setStyleSheet("""
+            QTextEdit {
+                background-color: #FFF9E6;
+                color: #D32F2F;
+                border: 2px solid #FFB74D;
+                border-radius: 4px;
+                padding: 8px;
+                font-weight: bold;
+            }
+        """)
+        self.error_display.setVisible(False)  # 初期状態は非表示
+        central_layout.addWidget(self.error_display)
+        
+        # 横方向のメインレイアウト
         main_layout = QHBoxLayout()
         
         # 左側: ログパネル
@@ -1378,7 +1401,8 @@ class MainWindow(QMainWindow):
         
         main_layout.addWidget(self.tab_widget, stretch=3)
         
-        central_widget.setLayout(main_layout)
+        central_layout.addLayout(main_layout)
+        central_widget.setLayout(central_layout)
     
     def _create_menu(self):
         """メニューバー作成"""
@@ -1437,6 +1461,24 @@ class MainWindow(QMainWindow):
         """ログメッセージを表示"""
         self.log_text.append(message)
     
+    def _show_errors(self, errors: list):
+        """エラーメッセージを表示"""
+        if not errors:
+            self._hide_errors()
+            return
+        
+        error_text = "⚠️ エラー・警告が検出されました:\n\n"
+        for i, error in enumerate(errors, 1):
+            error_text += f"{i}. {error}\n\n"
+        
+        self.error_display.setText(error_text)
+        self.error_display.setVisible(True)
+    
+    def _hide_errors(self):
+        """エラー表示を非表示にする"""
+        self.error_display.setVisible(False)
+        self.error_display.clear()
+    
     def load_settings(self):
         """Setting 読み込み"""
         self.log("\n" + "=" * 50)
@@ -1489,6 +1531,25 @@ class MainWindow(QMainWindow):
             zekken_count = len(self.race_parser.get_all_zekkens())
             self.log(f"✓ 検出されたゼッケン数: {zekken_count}")
             self.log("")
+            
+            # データ検証を実行
+            self.log("データ検証を実行中...")
+            validation_errors = validate_all(
+                self.app_config.race_folder,
+                self.race_parser.results,
+                self.config_loader.section_list
+            )
+            
+            if validation_errors:
+                self.log(f"⚠ 警告: {len(validation_errors)}件のエラー/警告が検出されました")
+                self._show_errors(validation_errors)
+                for i, error in enumerate(validation_errors, 1):
+                    self.log(f"  警告{i}: {error.split(chr(10))[0]}")  # 最初の行のみログに表示
+            else:
+                self.log("✓ データ検証: 問題なし")
+                self._hide_errors()
+            
+            self.log("")
             self.log("Race データ読み込み完了！")
             self.log("次に ③ 計算実行 をクリックしてください")
             
@@ -1502,6 +1563,19 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "警告", "先に Setting と Race データを読み込んでください")
             self.log("⚠ Warning: 先に ①②を実行してください")
             return
+        
+        # エラーがある場合は警告を表示
+        if self.error_display.isVisible():
+            reply = QMessageBox.question(
+                self,
+                "データ検証エラー",
+                "データ検証でエラー/警告が検出されています。\n\n計算を続行しますか？\n\n（エラーの詳細は画面上部を確認してください）",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                self.log("⚠ 計算を中止しました。エラーを修正してください。")
+                return
         
         self.log("\n" + "=" * 50)
         self.log("【③ 計算実行】")
