@@ -1,0 +1,11 @@
+No,DriverName,CoDriverName,CarName,車両製造年,CarClass,係数,年齢係数
+1,driver1,codriver1,car1,2020,A,1.0,1.0
+2,driver2,codriver2,car2,2019,A,1.0,1.0
+3,driver3,codriver3,car3,2021,A,1.0,1.0
+4,driver4,codriver4,car4,2018,A,1.0,1.0
+5,driver5,codriver5,car5,2022,A,1.0,1.0
+6,driver6,codriver6,car6,2020,A,1.0,1.0
+7,driver7,codriver7,car7,2019,B,1.0,1.0
+8,driver8,codriver8,car8,2021,B,1.0,1.0
+9,driver9,codriver9,car9,2020,B,1.0,1.0
+10,driver10,codriver10,car10,2022,B,1.0,1.0
