@@ -23,6 +23,9 @@ class AppConfig:
         # 最終結果ステータス: final_status[ゼッケン] = "RIT" or "N.C." or "BLNK"
         self.final_status: Dict[int, str] = {}
         
+        # ペナルティ: penalty_map[ゼッケン] = ペナルティ点数
+        self.penalty_map: Dict[int, float] = {}
+        
         # 初期化時にファイルから読み込み
         self.load()
     
@@ -51,6 +54,12 @@ class AppConfig:
             for zekken_str, status in final_status_data.items():
                 self.final_status[int(zekken_str)] = status
             
+            # ペナルティ情報の読み込み
+            penalty_map_data = data.get('penalty_map', {})
+            self.penalty_map = {}
+            for zekken_str, penalty in penalty_map_data.items():
+                self.penalty_map[int(zekken_str)] = float(penalty)
+            
             return True
         
         except Exception as e:
@@ -69,12 +78,18 @@ class AppConfig:
             for zekken, status in self.final_status.items():
                 final_status_data[str(zekken)] = status
             
+            # ペナルティ情報を辞書に変換（キーを文字列に）
+            penalty_map_data = {}
+            for zekken, penalty in self.penalty_map.items():
+                penalty_map_data[str(zekken)] = penalty
+            
             data = {
                 'co_point': self.co_point,
                 'race_folder': self.race_folder,
                 'settings_folder': self.settings_folder,
                 'status_map': status_map_data,
-                'final_status': final_status_data
+                'final_status': final_status_data,
+                'penalty_map': penalty_map_data
             }
             
             with open(self.config_file, 'w', encoding='utf-8') as f:
@@ -115,3 +130,16 @@ class AppConfig:
         """最終結果ステータスをクリア"""
         if zekken in self.final_status:
             del self.final_status[zekken]
+    
+    def set_penalty(self, zekken: int, penalty: float):
+        """ペナルティを設定"""
+        self.penalty_map[zekken] = penalty
+    
+    def get_penalty(self, zekken: int) -> float:
+        """ペナルティを取得"""
+        return self.penalty_map.get(zekken, 0.0)
+    
+    def clear_penalty(self, zekken: int):
+        """ペナルティをクリア"""
+        if zekken in self.penalty_map:
+            del self.penalty_map[zekken]

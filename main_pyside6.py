@@ -296,7 +296,8 @@ class StatusMatrixTabWidget(QWidget):
         # テーブル
         self.table = QTableWidget()
         self.table.setRowCount(len(self.all_zekkens))
-        self.table.setColumnCount(len(self.sections) + 1)
+        # 列数: ゼッケン + 区間 + Total Result + Penalty
+        self.table.setColumnCount(len(self.sections) + 3)
         
         # 複数セル選択を有効化
         self.table.setSelectionMode(QTableWidget.MultiSelection)
@@ -306,8 +307,12 @@ class StatusMatrixTabWidget(QWidget):
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
         
         # ヘッダー
-        headers = ["ゼッケン"] + self.sections
+        headers = ["ゼッケン"] + self.sections + ["Total Result", "ペナルティ"]
         self.table.setHorizontalHeaderLabels(headers)
+        
+        # Total Result列とペナルティ列のインデックスを記憶
+        self.total_result_col = len(self.sections) + 1
+        self.penalty_col = len(self.sections) + 2
         
         # データ入力
         for row_idx, zekken in enumerate(self.all_zekkens):
@@ -323,6 +328,19 @@ class StatusMatrixTabWidget(QWidget):
                 item.setTextAlignment(Qt.AlignCenter)
                 item.setData(Qt.UserRole, (zekken, section))
                 self.table.setItem(row_idx, col_idx, item)
+            
+            # Total Result列（ステータス入力）
+            total_result_item = QTableWidgetItem("")
+            total_result_item.setTextAlignment(Qt.AlignCenter)
+            total_result_item.setData(Qt.UserRole, ("total_result", zekken))
+            self.table.setItem(row_idx, self.total_result_col, total_result_item)
+            
+            # ペナルティ列（数字入力）
+            penalty_item = QTableWidgetItem("")
+            penalty_item.setTextAlignment(Qt.AlignCenter)
+            penalty_item.setData(Qt.UserRole, ("penalty", zekken))
+            penalty_item.setBackground(QBrush(QColor(255, 250, 205)))  # 淡い黄色で区別
+            self.table.setItem(row_idx, self.penalty_col, penalty_item)
         
         scroll.setWidget(self.table)
         layout.addWidget(scroll)
@@ -349,15 +367,26 @@ class StatusMatrixTabWidget(QWidget):
     
     def _on_cell_clicked(self, item):
         """セルがクリックされた時"""
-        if item.column() == 0:
+        if item.column() == 0:  # ゼッケン列
             return
-        self._apply_status_to_item(item)
+        
+        col = item.column()
+        
+        # ペナルティ列は数字入力なので、クリックでステータスを適用しない
+        if col == self.penalty_col:
+            return
+        
+        # 区間ステータスまたはTotal Result列の場合、ステータスを適用
+        if col <= len(self.sections) or col == self.total_result_col:
+            self._apply_status_to_item(item)
     
     def _on_selection_changed(self):
         """選択が変更された時（ドラッグ選択）"""
         selected_items = self.table.selectedItems()
         for item in selected_items:
-            if item.column() > 0:
+            col = item.column()
+            # ゼッケン列とペナルティ列以外にステータスを適用
+            if col > 0 and col != self.penalty_col:
                 self._apply_status_to_item(item)
     
     def _apply_status_to_item(self, item):
@@ -379,22 +408,58 @@ class StatusMatrixTabWidget(QWidget):
     def load_current_status(self, app_config):
         """現在のステータス設定を読み込んでテーブルに反映"""
         for row_idx, zekken in enumerate(self.all_zekkens):
+            # 区間ステータス
             for col_idx, section in enumerate(self.sections, start=1):
                 current_status = app_config.get_section_status(zekken, section) or ""
                 item = self.table.item(row_idx, col_idx)
                 if item:
                     item.setText(current_status)
                     self._update_cell_color(item, current_status)
+            
+            # Total Result ステータス
+            total_result_status = app_config.get_final_status(zekken) or ""
+            total_result_item = self.table.item(row_idx, self.total_result_col)
+            if total_result_item:
+                total_result_item.setText(total_result_status)
+                self._update_cell_color(total_result_item, total_result_status)
+            
+            # ペナルティ
+            penalty = app_config.get_penalty(zekken)
+            penalty_item = self.table.item(row_idx, self.penalty_col)
+            if penalty_item:
+                if penalty != 0.0:
+                    penalty_item.setText(str(penalty))
+                else:
+                    penalty_item.setText("")
     
     def save_status(self, app_config):
         """ステータスを保存"""
         for row_idx, zekken in enumerate(self.all_zekkens):
+            # 区間ステータス
             for col_idx, section in enumerate(self.sections, start=1):
                 item = self.table.item(row_idx, col_idx)
                 if item:
                     status = item.text()
                     if status:
                         app_config.set_section_status(zekken, section, status)
+            
+            # Total Result ステータス
+            total_result_item = self.table.item(row_idx, self.total_result_col)
+            if total_result_item:
+                status = total_result_item.text()
+                if status:
+                    app_config.set_final_status(zekken, status)
+            
+            # ペナルティ
+            penalty_item = self.table.item(row_idx, self.penalty_col)
+            if penalty_item:
+                penalty_text = penalty_item.text().strip()
+                if penalty_text:
+                    try:
+                        penalty = float(penalty_text)
+                        app_config.set_penalty(zekken, penalty)
+                    except ValueError:
+                        pass  # 無効な数字は無視
     
     def clear_all(self):
         """すべてクリア"""
