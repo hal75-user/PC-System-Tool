@@ -9,6 +9,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, Tuple
 import re
+from logging_config import get_logger
+
+# ロガー取得
+logger = get_logger(__name__)
 
 
 class RaceParser:
@@ -20,6 +24,7 @@ class RaceParser:
         self.start_time = {}
         # goal_time[ゼッケン][区間名] = 時刻文字列
         self.goal_time = {}
+        logger.info(f"RaceParser初期化: フォルダ={race_folder}")
         
     def parse_all(self) -> Tuple[bool, str]:
         """race フォルダ内のすべての CSV ファイルを解析
