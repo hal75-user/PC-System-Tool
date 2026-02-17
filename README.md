@@ -64,10 +64,31 @@
 8. **ペナルティ列** 💰
    - ゼッケンごとにペナルティ点数を設定
    - 数字入力欄（整数・小数対応）
-   - Total Result列の右隣に配置
-   - 将来的に総合得点の計算に使用予定
-   - 結果表示画面と同じタブ構成で統一
-   - DAY列がない場合はGROUP列で代替
+   - Total Result列の左隣に配置
+   - 総合得点から減点される
+
+### ✨ 最新機能更新（Phase 4 完了）
+
+**[STATUS_BEHAVIOR_GUIDE.md](STATUS_BEHAVIOR_GUIDE.md)** - ステータス挙動の整理と総合成績表示の拡張
+
+9. **列順の変更** 🔄
+   - ステータス設定画面: [...区間] + [ペナルティ] + [Total Result]
+   - ペナルティとTotal Resultの順序を入れ替え
+
+10. **Total Resultステータスの挙動改善** 🎯
+   - **変更前**: ステータス設定時に総合得点が0になる
+   - **変更後**: 得点は表示、順位付けからのみ除外
+   - RIT/N.C./BLNKすべて同じ挙動
+
+11. **総合成績表示の大幅拡張** 📊
+   - Result (順位)
+   - No (ゼッケン)
+   - DriverName, CoDriverName, CarName
+   - 車両製造年, CarClass
+   - Point (純粋な得点)
+   - H.C.L Point ((PC+PCG)*係数*年齢係数+CO)
+   - Penalty(-) (赤字表記)
+   - TotalPoint (H.C.L Point - Penalty)
 
 ## 📚 重要なドキュメント
 
