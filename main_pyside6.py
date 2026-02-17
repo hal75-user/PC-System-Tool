@@ -1151,6 +1151,26 @@ class SummaryTableWidget(QWidget):
             total_item = QTableWidgetItem(str(int(total_point)))
             total_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 10, total_item)
+    
+    def set_class_data(self, calc_engine, config_loader, app_config, class_name):
+        """クラス別データをセット
+        
+        Args:
+            calc_engine: 計算エンジン
+            config_loader: 設定ローダー
+            app_config: アプリケーション設定
+            class_name: クラス名
+        """
+        self.calc_engine = calc_engine
+        self.config_loader = config_loader
+        self.app_config = app_config
+        
+        # OutputFormatterを使ってクラス別総合順位を計算
+        from output_formatter import OutputFormatter
+        self.output_formatter = OutputFormatter(calc_engine, config_loader)
+        self.summary_df = self.output_formatter.get_summary_by_class(class_name)
+        
+        self._populate_table()
 
 
 class MainWindow(QMainWindow):
@@ -1317,6 +1337,10 @@ class MainWindow(QMainWindow):
         
         # 日別タブ（後で動的に生成）
         self.day_widgets = []
+        
+        # クラス別総合成績タブ（後で動的に生成）
+        self.class_summary_tab = None
+        self.class_summary_widgets = {}
         
         main_layout.addWidget(self.tab_widget, stretch=3)
         
@@ -1544,6 +1568,9 @@ class MainWindow(QMainWindow):
                         # 連続してセクションが見つからなくなったら終了
                         break
             
+            # クラス別総合成績タブを追加
+            self._update_class_summary_display()
+            
             self.log("✓ 結果を表示しました")
             self.log("")
             self.log("Excel/CSV 出力が可能です")
@@ -1551,6 +1578,52 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "エラー", f"結果表示中にエラーが発生しました:\n{str(e)}")
             self.log(f"❌ エラー: {str(e)}")
+    
+    def _update_class_summary_display(self):
+        """クラス別総合成績タブを更新"""
+        # 既存のクラス別総合成績タブを削除
+        if self.class_summary_tab is not None:
+            tab_index = self.tab_widget.indexOf(self.class_summary_tab)
+            if tab_index >= 0:
+                self.tab_widget.removeTab(tab_index)
+            self.class_summary_tab = None
+        
+        self.class_summary_widgets.clear()
+        
+        # すべてのクラスを取得
+        classes = self.output_formatter.get_all_classes()
+        
+        if not classes:
+            self.log("⚠ クラス情報が見つかりません")
+            return
+        
+        # クラス別総合成績タブを作成
+        self.class_summary_tab = QWidget()
+        class_summary_layout = QVBoxLayout(self.class_summary_tab)
+        
+        # クラスごとのサブタブを作成
+        class_tab_widget = QTabWidget()
+        
+        # 「全クラス」タブ（全体表示）
+        all_class_widget = SummaryTableWidget()
+        all_class_widget.set_data(self.calc_engine, self.config_loader, self.app_config)
+        class_tab_widget.addTab(all_class_widget, "全クラス")
+        self.class_summary_widgets['全クラス'] = all_class_widget
+        
+        # 各クラスのタブ
+        for class_name in classes:
+            widget = SummaryTableWidget()
+            widget.set_class_data(self.calc_engine, self.config_loader, self.app_config, class_name)
+            class_tab_widget.addTab(widget, class_name)
+            self.class_summary_widgets[class_name] = widget
+            self.log(f"✓ クラス別総合成績: {class_name}")
+        
+        class_summary_layout.addWidget(class_tab_widget)
+        
+        # メインタブに追加（総合成績と区間結果の間、インデックス1）
+        self.tab_widget.insertTab(1, self.class_summary_tab, "クラス別総合成績")
+        
+        self.log(f"✓ クラス別総合成績を表示しました（{len(classes)}クラス）")
     
     def export_excel(self):
         """Excel出力"""
