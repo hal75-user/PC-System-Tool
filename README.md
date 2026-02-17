@@ -4,9 +4,13 @@
 
 ## 📚 重要なドキュメント
 
+### 🌟 まずはこちらをお読みください
+- **[総括レポート（日本語）](EXECUTIVE_SUMMARY_JP.md)** - プロジェクト全体の評価と推奨事項のサマリー
+
+### 📖 詳細ドキュメント
 - **[分析と推奨事項](ANALYSIS_AND_RECOMMENDATIONS.md)** - コードベース分析、Python vs C# 比較、推奨事項
-- **[改善計画](IMPROVEMENT_PLAN.md)** - 具体的な改善実装ガイド
-- **[権限設定ガイド](PERMISSIONS_GUIDE.md)** - 開発に必要な権限設定方法
+- **[改善計画](IMPROVEMENT_PLAN.md)** - 具体的な改善実装ガイド、コード例
+- **[権限設定ガイド](PERMISSIONS_GUIDE.md)** - 開発に必要な権限設定方法（Windows/Mac/Linux）
 - **[要件定義書](PC%20System%20Tool_要件定義.txt)** - 完全な要件仕様
 
 ## 機能
