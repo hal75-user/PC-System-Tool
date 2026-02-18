@@ -413,12 +413,13 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                         
                         if missing_sections:
                             problem_details.append(f"  歯抜け（未通過）: {', '.join(missing_sections)}")
-                    except ValueError as e:
+                    except ValueError:
                         # expected_passedの要素がexpected_orderに存在しない場合
                         # （通常は発生しないが、念のため）
                         logger.warning(
                             f"データ不整合: ゼッケン {zekken} のグループ {group} で "
-                            f"expected_passed の要素が expected_order に見つかりません: {e}"
+                            f"expected_passed={expected_passed} の要素が "
+                            f"expected_order={expected_order} に見つかりません"
                         )
                 
                 # エラーメッセージを構築
