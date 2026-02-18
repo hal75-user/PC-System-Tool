@@ -660,13 +660,10 @@ class FinalStatusDialog(QDialog):
         self.app_config = app_config
         self.config_loader = config_loader
         self.setWindowTitle("最終ステータス設定")
-        self.setMinimumSize(400, 500)
+        self.setMinimumSize(600, 500)
         
         self.zekkens = sorted(config_loader.entries_dict.keys())
-        self.status_options = ["", "RIT", "N.C.", "BLNK"]
-        
-        # 現在選択されているステータス
-        self.current_status = ""
+        self.status_options = ["RIT", "N.C.", "BLNK"]
         
         self._create_widgets()
         self._load_current_status()
@@ -675,53 +672,45 @@ class FinalStatusDialog(QDialog):
         layout = QVBoxLayout()
         
         # 説明
-        label = QLabel("セルをクリックして選択し、選択中のステータスを適用します")
+        label = QLabel("ペナルティ列に数値を入力、またはステータス列(RIT/N.C./BLNK)をクリックして設定します")
         layout.addWidget(label)
         
-        # トグルボタン配置
-        button_layout = QHBoxLayout()
-        button_layout.addWidget(QLabel("ステータス選択:"))
-        
-        self.status_buttons = {}
-        for status in self.status_options:
-            btn_text = "空白" if status == "" else status
-            btn = QPushButton(btn_text)
-            btn.setCheckable(True)
-            btn.setMinimumWidth(80)
-            if status == "":
-                btn.setChecked(True)  # デフォルトで空白を選択
-            btn.clicked.connect(lambda checked, s=status: self._on_status_selected(s))
-            self.status_buttons[status] = btn
-            button_layout.addWidget(btn)
-        
-        button_layout.addStretch()
-        layout.addLayout(button_layout)
-        
-        # テーブル
+        # テーブル: 縦軸=ゼッケン、横軸=ペナルティ+ステータス
         self.table = QTableWidget()
         self.table.setRowCount(len(self.zekkens))
-        self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(["ゼッケン", "最終ステータス"])
+        self.table.setColumnCount(5)  # ゼッケン, ペナルティ, RIT, N.C., BLNK
+        self.table.setHorizontalHeaderLabels(["ゼッケン", "ペナルティ", "RIT", "N.C.", "BLNK"])
         
-        # 複数セル選択を有効化
-        self.table.setSelectionMode(QTableWidget.MultiSelection)
-        
-        # セルクリック/変更イベント
-        self.table.itemClicked.connect(self._on_cell_clicked)
-        self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        # 列幅設定
+        self.table.setColumnWidth(0, 80)   # ゼッケン
+        self.table.setColumnWidth(1, 100)  # ペナルティ
+        self.table.setColumnWidth(2, 80)   # RIT
+        self.table.setColumnWidth(3, 80)   # N.C.
+        self.table.setColumnWidth(4, 80)   # BLNK
         
         for row_idx, zekken in enumerate(self.zekkens):
-            # ゼッケン列
+            # ゼッケン列（編集不可）
             zekken_item = QTableWidgetItem(str(zekken))
             zekken_item.setFlags(Qt.ItemIsEnabled)
             zekken_item.setBackground(QBrush(QColor(240, 240, 240)))
+            zekken_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 0, zekken_item)
             
-            # ステータス列
-            status_item = QTableWidgetItem("")
-            status_item.setTextAlignment(Qt.AlignCenter)
-            status_item.setData(Qt.UserRole, zekken)
-            self.table.setItem(row_idx, 1, status_item)
+            # ペナルティ列（数値入力可能）
+            penalty_item = QTableWidgetItem("")
+            penalty_item.setTextAlignment(Qt.AlignCenter)
+            penalty_item.setBackground(QBrush(QColor(255, 250, 205)))  # 淡い黄色
+            self.table.setItem(row_idx, 1, penalty_item)
+            
+            # ステータス列（チェックボックス的に使用）
+            for col_idx, status in enumerate(self.status_options, start=2):
+                status_item = QTableWidgetItem("")
+                status_item.setTextAlignment(Qt.AlignCenter)
+                status_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                self.table.setItem(row_idx, col_idx, status_item)
+        
+        # セルクリックイベント
+        self.table.itemClicked.connect(self._on_cell_clicked)
         
         layout.addWidget(self.table)
         
@@ -746,77 +735,116 @@ class FinalStatusDialog(QDialog):
         self.setLayout(layout)
     
     def _load_current_status(self):
-        """現在のステータス設定を読み込んでテーブルに反映"""
+        """現在のステータス設定とペナルティを読み込んでテーブルに反映"""
         for row_idx, zekken in enumerate(self.zekkens):
+            # ペナルティを読み込み
+            penalty = self.app_config.get_penalty(zekken)
+            penalty_item = self.table.item(row_idx, 1)
+            if penalty_item and penalty != 0.0:
+                penalty_item.setText(str(penalty))
+            
+            # 最終ステータスを読み込み
             current_status = self.app_config.get_final_status(zekken) or ""
-            item = self.table.item(row_idx, 1)
-            if item:
-                item.setText(current_status)
-                self._update_cell_color(item, current_status)
-    
-    def _on_status_selected(self, status):
-        """ステータスボタンが選択された時"""
-        # 他のボタンをオフにする
-        for s, btn in self.status_buttons.items():
-            btn.setChecked(s == status)
-        
-        self.current_status = status
+            if current_status in self.status_options:
+                # 該当するステータス列にマークをつける
+                col_idx = 2 + self.status_options.index(current_status)
+                status_item = self.table.item(row_idx, col_idx)
+                if status_item:
+                    status_item.setText("✓")
+                    status_item.setBackground(QBrush(QColor(200, 255, 200)))  # 緑色
     
     def _on_cell_clicked(self, item):
         """セルがクリックされた時"""
-        if item.column() == 0:  # ゼッケン列はスキップ
+        row = item.row()
+        col = item.column()
+        
+        # ゼッケン列はスキップ
+        if col == 0:
             return
         
-        # 現在選択されているステータスを適用
-        self._apply_status_to_item(item)
-    
-    def _on_selection_changed(self):
-        """選択が変更された時（複数選択）"""
-        selected_items = self.table.selectedItems()
-        for item in selected_items:
-            if item.column() == 1:  # ステータス列のみ
-                self._apply_status_to_item(item)
-    
-    def _apply_status_to_item(self, item):
-        """アイテムにステータスを適用"""
-        item.setText(self.current_status)
-        self._update_cell_color(item, self.current_status)
-    
-    def _update_cell_color(self, item, status):
-        """ステータスに応じてセルの色を変更"""
-        if status == "":
-            item.setBackground(QBrush(QColor(255, 255, 255)))
-        elif status == "RIT":
-            item.setBackground(QBrush(QColor(255, 200, 200)))
-        elif status == "N.C.":
-            item.setBackground(QBrush(QColor(255, 255, 200)))
-        elif status == "BLNK":
-            item.setBackground(QBrush(QColor(200, 200, 255)))
+        # ペナルティ列は編集可能なので特別処理不要
+        if col == 1:
+            return
+        
+        # ステータス列（RIT, N.C., BLNK）がクリックされた場合
+        if col >= 2:
+            # 同じ行の他のステータス列をクリア
+            for c in range(2, 2 + len(self.status_options)):
+                other_item = self.table.item(row, c)
+                if other_item:
+                    other_item.setText("")
+                    other_item.setBackground(QBrush(QColor(255, 255, 255)))
+            
+            # クリックされたセルにチェックマークをつける
+            item.setText("✓")
+            item.setBackground(QBrush(QColor(200, 255, 200)))
     
     def _save(self):
-        """ステータスを保存"""
+        """ステータスとペナルティを保存"""
+        # ペナルティとステータスをクリア
         self.app_config.final_status = {}
+        self.app_config.penalties = {}
+        
+        # 無効なペナルティ値をチェック
+        invalid_penalties = []
         
         for row_idx, zekken in enumerate(self.zekkens):
-            item = self.table.item(row_idx, 1)
-            if item:
-                status = item.text()
-                if status:
+            # ペナルティを保存
+            penalty_item = self.table.item(row_idx, 1)
+            if penalty_item and penalty_item.text().strip():
+                try:
+                    penalty_value = float(penalty_item.text())
+                    # 有限の数値かチェック（inf, -inf, NaNは無効）
+                    import math
+                    if not math.isfinite(penalty_value):
+                        invalid_penalties.append((zekken, penalty_item.text()))
+                    elif penalty_value != 0.0:
+                        self.app_config.set_penalty(zekken, penalty_value)
+                except ValueError:
+                    invalid_penalties.append((zekken, penalty_item.text()))
+            
+            # ステータスを保存
+            for col_idx, status in enumerate(self.status_options, start=2):
+                status_item = self.table.item(row_idx, col_idx)
+                if status_item and status_item.text() == "✓":
                     self.app_config.set_final_status(zekken, status)
+                    break
+        
+        # 無効なペナルティがあれば警告を表示
+        if invalid_penalties:
+            warning_msg = "以下のゼッケンのペナルティ値が無効なため、保存されませんでした:\n\n"
+            for zekken, value in invalid_penalties:
+                warning_msg += f"  ゼッケン {zekken}: '{value}'\n"
+            warning_msg += "\nペナルティは数値で入力してください。"
+            QMessageBox.warning(self, "警告", warning_msg)
         
         self.app_config.save()
-        QMessageBox.information(self, "成功", "最終ステータス設定を保存しました")
+        
+        if invalid_penalties:
+            QMessageBox.information(self, "保存完了（一部警告あり）", 
+                                  "有効なデータは保存されましたが、一部のペナルティ値が無効でした。")
+        else:
+            QMessageBox.information(self, "成功", "最終ステータス設定とペナルティを保存しました")
+        
         self.accept()
     
     def _clear_all(self):
         """すべてクリア"""
-        reply = QMessageBox.question(self, "確認", "すべての最終ステータス設定をクリアしますか？")
+        reply = QMessageBox.question(self, "確認", "すべての最終ステータス設定とペナルティをクリアしますか？")
         if reply == QMessageBox.Yes:
             for row_idx in range(self.table.rowCount()):
-                item = self.table.item(row_idx, 1)
-                if item:
-                    item.setText("")
-                    self._update_cell_color(item, "")
+                # ペナルティをクリア
+                penalty_item = self.table.item(row_idx, 1)
+                if penalty_item:
+                    penalty_item.setText("")
+                
+                # ステータスをクリア
+                for col_idx in range(2, 2 + len(self.status_options)):
+                    status_item = self.table.item(row_idx, col_idx)
+                    if status_item:
+                        status_item.setText("")
+                        status_item.setBackground(QBrush(QColor(255, 255, 255)))
+
 
 
 class ResultTableWidget(QWidget):
@@ -833,31 +861,10 @@ class ResultTableWidget(QWidget):
     def _create_widgets(self):
         layout = QVBoxLayout()
         
-        # フィルターボタン（スクロール可能、折り返し対応）
-        filter_container = QWidget()
-        filter_container_layout = QVBoxLayout(filter_container)
-        filter_container_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # 「すべて表示」ボタン
+        # 「すべて表示」ボタンのみ残す
         self.all_btn = QPushButton("すべて表示")
         self.all_btn.clicked.connect(lambda: self.set_filter(None))
-        filter_container_layout.addWidget(self.all_btn)
-        
-        # 区間ジャンプボタン用のスクロールエリア
-        button_scroll = QScrollArea()
-        button_scroll.setWidgetResizable(True)
-        button_scroll.setMaximumHeight(120)  # 3-4行程度の高さ
-        button_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        
-        button_widget = QWidget()
-        self.filter_button_layout = QGridLayout(button_widget)  # QGridLayoutで折り返し対応
-        self.filter_button_layout.setSpacing(5)
-        self.filter_button_layout.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        
-        button_scroll.setWidget(button_widget)
-        filter_container_layout.addWidget(button_scroll)
-        
-        layout.addWidget(filter_container)
+        layout.addWidget(self.all_btn)
         
         # テーブル
         self.table = QTableWidget()
@@ -882,55 +889,11 @@ class ResultTableWidget(QWidget):
         self.output_formatter = OutputFormatter(calc_engine, config_loader)
         self.summary_df = self.output_formatter.get_summary_dataframe()
         
-        self._create_filter_buttons()
         self._populate_table()
-    
-    def _create_filter_buttons(self):
-        """区間ジャンプボタンを作成（フィルターに応じて絞る）"""
-        # 既存のボタンをクリア
-        while self.filter_button_layout.count() > 0:
-            item = self.filter_button_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        
-        # 表示する区間を決定（フィルターがあればそれを使う）
-        if self.filter_sections is None:
-            sections = self.config_loader.get_section_order()
-        else:
-            sections = self.filter_sections
-        
-        # 区間ボタンをグリッドに配置（1行に10個まで）
-        cols_per_row = 10
-        for idx, section in enumerate(sections):
-            row = idx // cols_per_row
-            col = idx % cols_per_row
-            btn = QPushButton(section)
-            btn.setMaximumWidth(80)
-            btn.clicked.connect(lambda checked, s=section: self.jump_to_section(s))
-            self.filter_button_layout.addWidget(btn, row, col)
-    
-    def jump_to_section(self, section):
-        """指定した区間にスクロールしてジャンプ"""
-        # 表示中の区間リストを使用
-        if self.filter_sections is None:
-            sections = self.config_loader.get_section_order()
-        else:
-            sections = self.filter_sections
-        
-        try:
-            section_idx = sections.index(section)
-            # 4個の固定列 + (section_idx * 6列)
-            col_idx = 4 + (section_idx * 6)
-            # その列にスクロール
-            if self.table.rowCount() > 0 and self.table.item(0, col_idx):
-                self.table.scrollToItem(self.table.item(0, col_idx), QAbstractItemView.PositionAtCenter)
-        except (ValueError, AttributeError):
-            pass
     
     def set_filter(self, sections):
         """フィルターを設定"""
         self.filter_sections = sections
-        self._create_filter_buttons()  # ボタンも再生成
         self._populate_table()
     
     def _populate_table(self):
