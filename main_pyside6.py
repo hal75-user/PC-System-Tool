@@ -1306,12 +1306,20 @@ class SummaryTableWidget(QWidget):
             
             # Point (純粋な得点) - 小数点2桁表示
             point_value = row.get('Point', 0)
-            point_item = QTableWidgetItem(f"{point_value:.2f}")
+            try:
+                point_str = f"{float(point_value):.2f}"
+            except (ValueError, TypeError):
+                point_str = str(point_value)
+            point_item = QTableWidgetItem(point_str)
             point_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 7, point_item)
             
             # H.C.L Point - 小数点2桁表示
-            hcl_item = QTableWidgetItem(f"{hcl_point:.2f}")
+            try:
+                hcl_str = f"{float(hcl_point):.2f}"
+            except (ValueError, TypeError):
+                hcl_str = str(hcl_point)
+            hcl_item = QTableWidgetItem(hcl_str)
             hcl_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 8, hcl_item)
             
@@ -1323,7 +1331,11 @@ class SummaryTableWidget(QWidget):
             self.table.setItem(row_idx, 9, penalty_item)
             
             # TotalPoint - 小数点2桁表示
-            total_item = QTableWidgetItem(f"{total_point:.2f}")
+            try:
+                total_str = f"{float(total_point):.2f}"
+            except (ValueError, TypeError):
+                total_str = str(total_point)
+            total_item = QTableWidgetItem(total_str)
             total_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 10, total_item)
     
