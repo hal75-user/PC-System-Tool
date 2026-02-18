@@ -12,9 +12,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 # エラーメッセージのインデント定数
-INDENT_LEVEL_1 = "  "   # 2スペース
-INDENT_LEVEL_2 = "    "  # 4スペース
-INDENT_LEVEL_3 = "      " # 6スペース
+ERROR_MSG_INDENT = "  "       # エラーメッセージの基本インデント（2スペース）
+DETAIL_INDENT = "    "        # 詳細情報のインデント（4スペース）
+SUB_DETAIL_INDENT = "      "  # サブ詳細のインデント（6スペース）
 
 
 class ValidationError:
@@ -281,19 +281,19 @@ def check_section_passage_order(results: List, sections: List) -> List[Validatio
             
             # 順序が異なる場合
             if base_common_order != current_common_order:
-                section_detail.append(f"{INDENT_LEVEL_2}通過順序が異なります:")
-                section_detail.append(f"{INDENT_LEVEL_3}基準: {base_common_order}")
-                section_detail.append(f"{INDENT_LEVEL_3}実際: {current_common_order}")
+                section_detail.append(f"{DETAIL_INDENT}通過順序が異なります:")
+                section_detail.append(f"{SUB_DETAIL_INDENT}基準: {base_common_order}")
+                section_detail.append(f"{SUB_DETAIL_INDENT}実際: {current_common_order}")
             
             # 歯抜けチェック（基準にあるが現在にない）
             missing = base_set - current_set
             if missing:
-                section_detail.append(f"{INDENT_LEVEL_2}基準にあるゼッケンが欠けています: {sorted(missing)}")
+                section_detail.append(f"{DETAIL_INDENT}基準にあるゼッケンが欠けています: {sorted(missing)}")
             
             # 追加ゼッケンチェック（現在にあるが基準にない）
             extra = current_set - base_set
             if extra:
-                section_detail.append(f"{INDENT_LEVEL_2}基準にないゼッケンがあります: {sorted(extra)}")
+                section_detail.append(f"{DETAIL_INDENT}基準にないゼッケンがあります: {sorted(extra)}")
             
             # 問題があれば記録
             if section_detail:
@@ -303,10 +303,10 @@ def check_section_passage_order(results: List, sections: List) -> List[Validatio
         if section_issues:
             error_msg = f"⚠️ 区間通過順エラー\n"
             error_msg += f"グループ {group} で基準区間 {first_section} と異なる区間があります:\n"
-            error_msg += f"{INDENT_LEVEL_1}基準区間 {first_section} の通過順: {base_order}\n\n"
+            error_msg += f"{ERROR_MSG_INDENT}基準区間 {first_section} の通過順: {base_order}\n\n"
             
             for section_name, details in section_issues:
-                error_msg += f"{INDENT_LEVEL_1}【区間 {section_name}】\n"
+                error_msg += f"{ERROR_MSG_INDENT}【区間 {section_name}】\n"
                 error_msg += '\n'.join(details) + '\n\n'
             
             error_msg += "確認してください。"
@@ -397,7 +397,7 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                             reversals.append(f"{curr_section} → {next_section}")
                 
                 if reversals:
-                    problem_details.append(f"{INDENT_LEVEL_1}逆転: {', '.join(reversals)}")
+                    problem_details.append(f"{ERROR_MSG_INDENT}逆転: {', '.join(reversals)}")
                 
                 # 歯抜けを検出（通過すべきだったが通過していない区間）
                 passed_set = set(passed_sections)
@@ -419,21 +419,28 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                                 missing_sections.append(section)
                         
                         if missing_sections:
-                            problem_details.append(f"{INDENT_LEVEL_1}歯抜け（未通過）: {', '.join(missing_sections)}")
+                            problem_details.append(f"{ERROR_MSG_INDENT}歯抜け（未通過）: {', '.join(missing_sections)}")
                     else:
                         # expected_passedの要素がexpected_orderに存在しない場合
                         # （通常は発生しないが、念のため）
+                        # どの要素が見つからないかを特定
+                        missing_elements = []
+                        if first_expected_idx is None:
+                            missing_elements.append(f"first={expected_passed[0]}")
+                        if last_expected_idx is None:
+                            missing_elements.append(f"last={expected_passed[-1]}")
+                        
                         logger.warning(
                             f"データ不整合: ゼッケン {zekken} のグループ {group} で "
-                            f"expected_passed (長さ {len(expected_passed)}) の要素が "
-                            f"expected_order (長さ {len(expected_order)}) に見つかりません"
+                            f"expected_passed の要素 [{', '.join(missing_elements)}] が "
+                            f"expected_order に見つかりません"
                         )
                 
                 # エラーメッセージを構築
                 error_msg = f"⚠️ ゼッケン通過順エラー\n"
                 error_msg += f"ゼッケン {zekken} がグループ {group} で不正な順序で通過しています:\n\n"
-                error_msg += f"{INDENT_LEVEL_1}期待される順序: {' → '.join(expected_passed)}\n"
-                error_msg += f"{INDENT_LEVEL_1}実際の通過順序: {' → '.join(passed_sections)}\n\n"
+                error_msg += f"{ERROR_MSG_INDENT}期待される順序: {' → '.join(expected_passed)}\n"
+                error_msg += f"{ERROR_MSG_INDENT}実際の通過順序: {' → '.join(passed_sections)}\n\n"
                 
                 if problem_details:
                     error_msg += "【問題箇所】\n"
