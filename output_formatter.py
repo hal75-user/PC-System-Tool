@@ -172,6 +172,11 @@ class OutputFormatter:
         status_df = df[~df['Result'].isna()]
         
         result_df = pd.concat([normal_df, status_df], ignore_index=True)
+        
+        # 後方互換性のため、'No' を 'ゼッケン'、'Result' を '順位' としても参照できるようにする
+        result_df['ゼッケン'] = result_df['No']
+        result_df['順位'] = result_df['Result']
+        
         return result_df
     
     def get_all_classes(self) -> List[str]:
@@ -249,4 +254,9 @@ class OutputFormatter:
         status_df = df[~df['Result'].isna()]
         
         result_df = pd.concat([normal_df, status_df], ignore_index=True)
+        
+        # 後方互換性のため、'No' を 'ゼッケン'、'Result' を '順位' としても参照できるようにする
+        result_df['ゼッケン'] = result_df['No']
+        result_df['順位'] = result_df['Result']
+        
         return result_df
