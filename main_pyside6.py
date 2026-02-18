@@ -69,6 +69,10 @@ class ErrorDialog(QDialog):
         self.confirm_btn.clicked.connect(self._confirm_selected_error)
         button_layout.addWidget(self.confirm_btn)
         
+        self.confirm_all_btn = QPushButton("すべて確認済みにする")
+        self.confirm_all_btn.clicked.connect(self._confirm_all_errors)
+        button_layout.addWidget(self.confirm_all_btn)
+        
         self.unconfirm_btn = QPushButton("選択したエラーを未確認に戻す")
         self.unconfirm_btn.clicked.connect(self._unconfirm_selected_error)
         button_layout.addWidget(self.unconfirm_btn)
@@ -146,6 +150,43 @@ class ErrorDialog(QDialog):
         error.confirmed = True
         self._populate_errors()
         QMessageBox.information(self, "成功", "エラーを確認済みにしました。")
+    
+    def _confirm_all_errors(self):
+        """すべてのエラーを確認済みにする（許容されるもののみ）"""
+        # 確認できないエラーをカウント
+        non_confirmable = sum(1 for err in self.errors if not err.allow_confirmation)
+        confirmable = sum(1 for err in self.errors if err.allow_confirmation)
+        
+        if non_confirmable > 0:
+            reply = QMessageBox.question(
+                self,
+                "確認",
+                f"確認可能な{confirmable}件のエラーを確認済みにします。\n"
+                f"（{non_confirmable}件の重大エラーは確認できません）\n\n"
+                f"続行しますか？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+        else:
+            reply = QMessageBox.question(
+                self,
+                "確認",
+                f"{confirmable}件のエラーをすべて確認済みにしますか？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+        
+        # すべての確認可能なエラーを確認済みにする
+        for error in self.errors:
+            if error.allow_confirmation:
+                error.confirmed = True
+        
+        self._populate_errors()
+        QMessageBox.information(self, "成功", f"{confirmable}件のエラーを確認済みにしました。")
     
     def _unconfirm_selected_error(self):
         """選択したエラーを未確認に戻す"""
