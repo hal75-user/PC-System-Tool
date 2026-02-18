@@ -16,6 +16,9 @@ ERROR_MSG_INDENT = "  "       # エラーメッセージの基本インデント
 DETAIL_INDENT = "    "        # 詳細情報のインデント（4スペース）
 SUB_DETAIL_INDENT = "      "  # サブ詳細のインデント（6スペース）
 
+# ログ出力時の配列の最大表示要素数
+MAX_LOG_ITEMS = 10  # ログが長くなりすぎないように制限
+
 
 class ValidationError:
     """検証エラーを表すクラス"""
@@ -430,12 +433,18 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                         if last_expected_idx is None:
                             missing_elements.append(f"last={expected_passed[-1]}")
                         
+                        # ログ用に配列を適切な長さに切り詰める
+                        expected_passed_str = str(expected_passed[:MAX_LOG_ITEMS]) + \
+                            ('...' if len(expected_passed) > MAX_LOG_ITEMS else '')
+                        expected_order_str = str(expected_order[:MAX_LOG_ITEMS]) + \
+                            ('...' if len(expected_order) > MAX_LOG_ITEMS else '')
+                        
                         logger.warning(
                             f"データ不整合検出: ゼッケン {zekken} のグループ {group} で "
                             f"expected_passed の要素 [{', '.join(missing_elements)}] が "
                             f"expected_order に見つかりません。"
-                            f"expected_passed={expected_passed[:10]}{'...' if len(expected_passed) > 10 else ''}, "
-                            f"expected_order={expected_order[:10]}{'...' if len(expected_order) > 10 else ''}"
+                            f"expected_passed={expected_passed_str}, "
+                            f"expected_order={expected_order_str}"
                         )
                 
                 # エラーメッセージを構築
