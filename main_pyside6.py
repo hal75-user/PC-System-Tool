@@ -906,14 +906,36 @@ class ResultTableWidget(QWidget):
         # 表示する区間を決定
         if self.filter_sections is None:
             sections = self.config_loader.get_section_order()
+            is_all_sections = True
         else:
             sections = self.filter_sections
+            is_all_sections = False
         
         # ゼッケン一覧
         zekkens = sorted(self.calc_engine.results.keys())
         
+        # 表示する区間の得点と順位を計算
+        scores = {}
+        for zekken in zekkens:
+            scores[zekken] = self.calc_engine.get_score_for_sections(zekken, sections)
+        
+        # 得点に基づいて順位を計算（降順、同点は同順位）
+        sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        ranks = {}
+        current_rank = 1
+        prev_score = None
+        for idx, (zekken, score) in enumerate(sorted_scores, start=1):
+            if prev_score is not None and score < prev_score:
+                current_rank = idx
+            ranks[zekken] = current_rank
+            prev_score = score
+        
         # カラム構成（2段ヘッダー：改行で区切る）
-        columns = ["ゼッケン", "ドライバー名", "総合得点", "総合順位"]
+        # 全日表示の場合は「総合」、日別表示の場合は「得点」「順位」
+        if is_all_sections:
+            columns = ["ゼッケン", "ドライバー名", "総合得点", "総合順位"]
+        else:
+            columns = ["ゼッケン", "ドライバー名", "得点", "順位"]
         
         for section in sections:
             columns.extend([
@@ -947,22 +969,13 @@ class ResultTableWidget(QWidget):
                 driver_name = f"#{zekken}"
             self._set_item(row_idx, 1, driver_name)
             
-            total_score = self.calc_engine.get_total_score(zekken)
-            self._set_item(row_idx, 2, str(total_score))
+            # 表示する区間の得点を表示
+            section_score = scores.get(zekken, 0)
+            self._set_item(row_idx, 2, str(section_score))
             
-            # 総合順位を表示
-            rank_str = "-"
-            if hasattr(self, 'summary_df'):
-                rank_row = self.summary_df[self.summary_df['ゼッケン'] == zekken]
-                if not rank_row.empty:
-                    rank_value = rank_row.iloc[0]['順位']
-                    if pd.notna(rank_value):
-                        if isinstance(rank_value, (int, float)):
-                            rank_str = str(int(rank_value))
-                        else:
-                            rank_str = str(rank_value)
-            
-            self._set_item(row_idx, 3, rank_str)
+            # 表示する区間の順位を表示
+            section_rank = ranks.get(zekken, "-")
+            self._set_item(row_idx, 3, str(section_rank))
             
             col_idx = 4
             
@@ -1083,9 +1096,9 @@ class ResultTableWidget(QWidget):
                 self.table.setColumnWidth(col_idx, 60)
             elif col_name == "ドライバー名":
                 self.table.setColumnWidth(col_idx, 120)
-            elif col_name == "総合得点":
+            elif col_name in ["総合得点", "得点"]:
                 self.table.setColumnWidth(col_idx, 70)
-            elif col_name == "総合順位":
+            elif col_name in ["総合順位", "順位"]:
                 self.table.setColumnWidth(col_idx, 70)
             elif "\nSTART" in col_name or "\nGOAL" in col_name:
                 self.table.setColumnWidth(col_idx, 95)
