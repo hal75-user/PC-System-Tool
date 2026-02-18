@@ -297,7 +297,7 @@ class CalculationEngine:
             sections: 区間名のリスト
             
         Returns:
-            指定区間の総合得点 = (PC + PCG) * 係数 * 年齢係数 + CO
+            指定区間の総合得点（整数に切り捨て） = int((PC + PCG) * 係数 * 年齢係数 + CO)
         """
         # entries 情報取得
         entry = self.config.entries_dict.get(zekken)
