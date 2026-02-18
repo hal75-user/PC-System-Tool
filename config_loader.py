@@ -6,7 +6,15 @@ settings フォルダから entries, point, section ファイルを読み込む
 import os
 import glob
 import pandas as pd
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
+
+
+class SectionInfo:
+    """セクション情報を保持するクラス"""
+    def __init__(self, section: str, group=None, GROUP=None):
+        self.section = section
+        self.group = group
+        self.GROUP = GROUP
 
 
 class ConfigLoader:
@@ -18,6 +26,29 @@ class ConfigLoader:
         self.point_dict = {}
         self.section_dict = {}
         self.section_df = None
+        self._section_list_cache = None
+    
+    @property
+    def section_list(self) -> List[SectionInfo]:
+        """セクション情報のリストを取得"""
+        if self._section_list_cache is not None:
+            return self._section_list_cache
+        
+        if self.section_df is None:
+            return []
+        
+        sections = []
+        for _, row in self.section_df.iterrows():
+            section_name = row.get('section', '')
+            group = row.get('group', row.get('GROUP', None))
+            sections.append(SectionInfo(
+                section=section_name,
+                group=group,
+                GROUP=group
+            ))
+        
+        self._section_list_cache = sections
+        return sections
         
     def load_all(self) -> Tuple[bool, str]:
         """すべての設定ファイルを読み込む

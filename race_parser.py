@@ -7,12 +7,20 @@ import os
 import glob
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 import re
 from logging_config import get_logger
 
 # ロガー取得
 logger = get_logger(__name__)
+
+
+class RaceResult:
+    """検証用の簡易結果オブジェクト"""
+    def __init__(self, section: str, zekken: int):
+        self.section = section
+        self.zekken = zekken
+        self.status = None
 
 
 class RaceParser:
@@ -24,7 +32,35 @@ class RaceParser:
         self.start_time = {}
         # goal_time[ゼッケン][区間名] = 時刻文字列
         self.goal_time = {}
+        self._results_cache = None  # 検証用結果のキャッシュ
         logger.info(f"RaceParser初期化: フォルダ={race_folder}")
+    
+    @property
+    def results(self) -> List[RaceResult]:
+        """検証用の結果リストを生成"""
+        if self._results_cache is not None:
+            return self._results_cache
+        
+        results = []
+        # すべての区間とゼッケンの組み合わせから結果オブジェクトを生成
+        sections_zekkens = set()
+        
+        # start_timeから区間とゼッケンを収集
+        for zekken, sections in self.start_time.items():
+            for section in sections.keys():
+                sections_zekkens.add((section, zekken))
+        
+        # goal_timeからも収集
+        for zekken, sections in self.goal_time.items():
+            for section in sections.keys():
+                sections_zekkens.add((section, zekken))
+        
+        # 結果オブジェクトを作成
+        for section, zekken in sections_zekkens:
+            results.append(RaceResult(section, zekken))
+        
+        self._results_cache = results
+        return results
         
     def parse_all(self) -> Tuple[bool, str]:
         """race フォルダ内のすべての CSV ファイルを解析
@@ -32,6 +68,9 @@ class RaceParser:
         Returns:
             (成功: bool, エラーメッセージ: str)
         """
+        # キャッシュをクリア
+        self._results_cache = None
+        
         csv_files = glob.glob(os.path.join(self.race_folder, "*.csv"))
         
         if len(csv_files) == 0:
