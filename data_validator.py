@@ -364,8 +364,8 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
         for group, passed_sections in group_passages.items():
             expected_order = group_section_order[group]
             
-            # 1つの区間しか通過していない場合はスキップ
-            # （グループとして全て通過していないゼッケンも含む）
+            # 通過順序を比較するには最低2つの区間通過が必要
+            # 1つ以下の場合は順序の検証ができないためスキップ
             if len(passed_sections) < 2:
                 continue
             
@@ -404,7 +404,8 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                 expected_set = set(expected_passed)
                 
                 # 期待される区間の範囲を特定
-                # expected_passedは expected_order から生成されるため、必ず含まれているはず
+                # expected_passed は expected_order のサブセットとして生成されるため通常は必ず含まれる
+                # ただし、データの同時更新や不整合があった場合に備えて防御的にチェック
                 if expected_passed:
                     # O(1)ルックアップを使用
                     first_expected_idx = expected_order_idx.get(expected_passed[0])
@@ -421,9 +422,8 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                         if missing_sections:
                             problem_details.append(f"{ERROR_MSG_INDENT}歯抜け（未通過）: {', '.join(missing_sections)}")
                     else:
-                        # expected_passedの要素がexpected_orderに存在しない場合
-                        # （通常は発生しないが、念のため）
-                        # どの要素が見つからないかを特定
+                        # データ不整合: expected_passedの要素がexpected_orderに存在しない
+                        # この状況は、データ構造の同時更新や競合状態で発生する可能性がある
                         missing_elements = []
                         if first_expected_idx is None:
                             missing_elements.append(f"first={expected_passed[0]}")
@@ -431,9 +431,11 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                             missing_elements.append(f"last={expected_passed[-1]}")
                         
                         logger.warning(
-                            f"データ不整合: ゼッケン {zekken} のグループ {group} で "
+                            f"データ不整合検出: ゼッケン {zekken} のグループ {group} で "
                             f"expected_passed の要素 [{', '.join(missing_elements)}] が "
-                            f"expected_order に見つかりません"
+                            f"expected_order に見つかりません。"
+                            f"expected_passed={expected_passed[:10]}{'...' if len(expected_passed) > 10 else ''}, "
+                            f"expected_order={expected_order[:10]}{'...' if len(expected_order) > 10 else ''}"
                         )
                 
                 # エラーメッセージを構築
