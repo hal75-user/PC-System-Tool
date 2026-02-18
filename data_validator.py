@@ -4,14 +4,82 @@
 """
 
 import os
-from typing import List, Dict, Set
+import pandas as pd
+from typing import List, Dict, Set, Tuple
 from collections import defaultdict, Counter
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-def validate_all(race_folder: str, results: List, sections: List) -> List[str]:
+class ValidationError:
+    """検証エラーを表すクラス"""
+    
+    def __init__(self, error_type: str, message: str, details: Dict = None, allow_confirmation: bool = True):
+        """
+        Args:
+            error_type: エラータイプ（例: "csv_duplicate", "zekken_duplicate"）
+            message: エラーメッセージ
+            details: エラーの詳細情報（同一エラー判定に使用）
+            allow_confirmation: 確認済みステータスを許容するか
+        """
+        self.error_type = error_type
+        self.message = message
+        self.details = details or {}
+        self.allow_confirmation = allow_confirmation
+        self.confirmed = False
+    
+    def get_comparison_key(self) -> str:
+        """同一エラー判定用のキーを生成"""
+        if self.error_type == "csv_duplicate":
+            # ファイル名重複: 区間名が同じ
+            return f"{self.error_type}:{self.details.get('section', '')}"
+        
+        elif self.error_type == "zekken_duplicate":
+            # ゼッケン重複: 区間とゼッケンが同じ
+            return f"{self.error_type}:{self.details.get('section', '')}:{self.details.get('zekken', '')}"
+        
+        elif self.error_type == "section_order":
+            # 区間通過順: 最初の区間の基準順番と異なっている区間とその順番が同じ
+            first_section = self.details.get('first_section', '')
+            base_order = str(self.details.get('base_order', []))
+            section = self.details.get('section', '')
+            current_order = str(self.details.get('current_order', []))
+            return f"{self.error_type}:{first_section}:{base_order}:{section}:{current_order}"
+        
+        elif self.error_type == "zekken_order":
+            # ゼッケン通過順: 順番通りに通過していないゼッケンとその通過順番が同じ
+            zekken = self.details.get('zekken', '')
+            passed_sections = str(self.details.get('passed_sections', []))
+            return f"{self.error_type}:{zekken}:{passed_sections}"
+        
+        elif self.error_type == "invalid_status":
+            # ステータス不正: 走行している区間とゼッケンとステータスが同じ
+            section = self.details.get('section', '')
+            zekken = self.details.get('zekken', '')
+            status = self.details.get('status', '')
+            return f"{self.error_type}:{section}:{zekken}:{status}"
+        
+        elif self.error_type == "measurement_type":
+            # 計測タイプ確認: Tの時刻とゼッケンが同じ
+            section = self.details.get('section', '')
+            time = self.details.get('time', '')
+            zekken = self.details.get('zekken', '')
+            return f"{self.error_type}:{section}:{time}:{zekken}"
+        
+        elif self.error_type == "measurement_deficiency":
+            # 計測データ不備: 区間が同じ
+            section = self.details.get('section', '')
+            return f"{self.error_type}:{section}"
+        
+        return f"{self.error_type}:{str(self.details)}"
+    
+    def __str__(self):
+        return self.message
+
+
+def validate_all(race_folder: str, results: List, sections: List, 
+                 calc_engine=None) -> List[ValidationError]:
     """
     すべてのデータ検証を実行
     
@@ -19,9 +87,10 @@ def validate_all(race_folder: str, results: List, sections: List) -> List[str]:
         race_folder: レースデータフォルダのパス
         results: レース結果のリスト
         sections: 区間設定のリスト
+        calc_engine: 計算エンジン（計測データ不備チェックに使用、オプション）
         
     Returns:
-        エラーメッセージのリスト
+        ValidationErrorのリスト
     """
     errors = []
     
@@ -45,10 +114,19 @@ def validate_all(race_folder: str, results: List, sections: List) -> List[str]:
     status_errors = check_invalid_status_with_time(results)
     errors.extend(status_errors)
     
+    # 6. 計測タイプ確認
+    type_errors = check_measurement_type(race_folder)
+    errors.extend(type_errors)
+    
+    # 7. 計測データ不備確認（計算エンジンが利用可能な場合のみ）
+    if calc_engine:
+        deficiency_errors = check_measurement_deficiency(calc_engine, sections)
+        errors.extend(deficiency_errors)
+    
     return errors
 
 
-def check_duplicate_filenames(race_folder: str) -> List[str]:
+def check_duplicate_filenames(race_folder: str) -> List[ValidationError]:
     """
     CSVファイル名重複チェック
     同じ区間名を持つファイルが複数存在しないかチェック
@@ -86,12 +164,19 @@ def check_duplicate_filenames(race_folder: str) -> List[str]:
             for f in files:
                 error_msg += f"  - {f}\n"
             error_msg += "ファイル名を修正してください。"
-            errors.append(error_msg)
+            
+            error = ValidationError(
+                error_type="csv_duplicate",
+                message=error_msg,
+                details={"section": section, "files": files},
+                allow_confirmation=False  # 確認を許容しない
+            )
+            errors.append(error)
     
     return errors
 
 
-def check_duplicate_zekken_in_section(results: List) -> List[str]:
+def check_duplicate_zekken_in_section(results: List) -> List[ValidationError]:
     """
     ゼッケン重複チェック
     同じ区間に同じゼッケンが2回以上出現しないかチェック
@@ -113,12 +198,19 @@ def check_duplicate_zekken_in_section(results: List) -> List[str]:
                 error_msg = f"⚠️ ゼッケン重複エラー\n"
                 error_msg += f"区間 '{section}' でゼッケン {zekken} が{count}回出現しています。\n"
                 error_msg += "CSVファイルを確認してください。"
-                errors.append(error_msg)
+                
+                error = ValidationError(
+                    error_type="zekken_duplicate",
+                    message=error_msg,
+                    details={"section": section, "zekken": zekken, "count": count},
+                    allow_confirmation=False  # 確認を許容しない
+                )
+                errors.append(error)
     
     return errors
 
 
-def check_section_passage_order(results: List, sections: List) -> List[str]:
+def check_section_passage_order(results: List, sections: List) -> List[ValidationError]:
     """
     区間通過順チェック
     同じグループ内の各区間で、ゼッケンの通過順序が一致するかチェック
@@ -184,7 +276,20 @@ def check_section_passage_order(results: List, sections: List) -> List[str]:
                 error_msg += f"  基準区間 {first_section}: {base_common_order}\n"
                 error_msg += f"  区間 {section_name}: {current_common_order}\n"
                 error_msg += "確認してください。"
-                errors.append(error_msg)
+                
+                error = ValidationError(
+                    error_type="section_order",
+                    message=error_msg,
+                    details={
+                        "group": group,
+                        "first_section": first_section,
+                        "base_order": base_common_order,
+                        "section": section_name,
+                        "current_order": current_common_order
+                    },
+                    allow_confirmation=True
+                )
+                errors.append(error)
             
             # 歯抜けチェック（基準にあるが現在にない）
             missing = base_set - current_set
@@ -193,7 +298,21 @@ def check_section_passage_order(results: List, sections: List) -> List[str]:
                 error_msg += f"グループ {group} の区間 {section_name} で、\n"
                 error_msg += f"基準区間 {first_section} にあるゼッケンが欠けています: {sorted(missing)}\n"
                 error_msg += "確認してください。"
-                errors.append(error_msg)
+                
+                error = ValidationError(
+                    error_type="section_order",
+                    message=error_msg,
+                    details={
+                        "group": group,
+                        "first_section": first_section,
+                        "base_order": base_order,
+                        "section": section_name,
+                        "current_order": current_order,
+                        "missing": sorted(missing)
+                    },
+                    allow_confirmation=True
+                )
+                errors.append(error)
             
             # 追加ゼッケンチェック（現在にあるが基準にない）
             extra = current_set - base_set
@@ -202,12 +321,26 @@ def check_section_passage_order(results: List, sections: List) -> List[str]:
                 error_msg += f"グループ {group} の区間 {section_name} で、\n"
                 error_msg += f"基準区間 {first_section} にないゼッケンがあります: {sorted(extra)}\n"
                 error_msg += "確認してください。"
-                errors.append(error_msg)
+                
+                error = ValidationError(
+                    error_type="section_order",
+                    message=error_msg,
+                    details={
+                        "group": group,
+                        "first_section": first_section,
+                        "base_order": base_order,
+                        "section": section_name,
+                        "current_order": current_order,
+                        "extra": sorted(extra)
+                    },
+                    allow_confirmation=True
+                )
+                errors.append(error)
     
     return errors
 
 
-def check_zekken_passage_order(results: List, sections: List) -> List[str]:
+def check_zekken_passage_order(results: List, sections: List) -> List[ValidationError]:
     """
     ゼッケン通過順チェック
     各ゼッケンがグループ内の区間を正しい順序で通過しているかチェック
@@ -253,12 +386,24 @@ def check_zekken_passage_order(results: List, sections: List) -> List[str]:
                 error_msg += f"  期待: {' → '.join(expected_passed)}\n"
                 error_msg += f"  実際: {' → '.join(passed_sections)}\n"
                 error_msg += "確認してください。"
-                errors.append(error_msg)
+                
+                error = ValidationError(
+                    error_type="zekken_order",
+                    message=error_msg,
+                    details={
+                        "zekken": zekken,
+                        "group": group,
+                        "expected_passed": expected_passed,
+                        "passed_sections": passed_sections
+                    },
+                    allow_confirmation=True
+                )
+                errors.append(error)
     
     return errors
 
 
-def check_invalid_status_with_time(results: List) -> List[str]:
+def check_invalid_status_with_time(results: List) -> List[ValidationError]:
     """
     ステータス不正チェック
     RIT または BLNK ステータスのゼッケンが走行データを持っていないかチェック
@@ -281,6 +426,192 @@ def check_invalid_status_with_time(results: List) -> List[str]:
                 else:
                     error_msg += "GOAL時刻が存在します。\n"
                 error_msg += "確認してください。"
-                errors.append(error_msg)
+                
+                error = ValidationError(
+                    error_type="invalid_status",
+                    message=error_msg,
+                    details={
+                        "section": result.section,
+                        "zekken": result.zekken,
+                        "status": result.status
+                    },
+                    allow_confirmation=True
+                )
+                errors.append(error)
+    
+    return errors
+
+
+def check_measurement_type(race_folder: str) -> List[ValidationError]:
+    """
+    計測タイプ確認
+    type=T（手動計測）の時刻にゼッケンが入力されている場合は警告
+    """
+    errors = []
+    
+    if not race_folder or not os.path.exists(race_folder):
+        return errors
+    
+    import glob
+    import re
+    
+    # CSVファイルをすべて取得
+    csv_files = glob.glob(os.path.join(race_folder, "*.csv"))
+    
+    for csv_file in csv_files:
+        try:
+            # CSV読み込み
+            df = pd.read_csv(csv_file, encoding='utf-8-sig')
+            
+            # 列を探す: type, time, number
+            type_col = None
+            time_col = None
+            number_col = None
+            
+            # time列を探す
+            for idx, col in enumerate(df.columns):
+                if 'time' in col.lower():
+                    time_col = col
+                    # typeはtimeの左側
+                    if idx > 0:
+                        type_col = df.columns[idx - 1]
+                    # numberはtimeの右側
+                    if idx + 1 < len(df.columns):
+                        number_col = df.columns[idx + 1]
+                    break
+            
+            if not all([type_col, time_col, number_col]):
+                continue  # 必要な列が見つからない場合はスキップ
+            
+            # ファイル名から区間名を抽出
+            basename = os.path.splitext(os.path.basename(csv_file))[0]
+            sections = []
+            parts = basename.split('_')
+            for part in parts:
+                match = re.match(r'([A-Z]+\d+)(START|GOAL)', part)
+                if match:
+                    sections.append(match.group(1))
+            
+            section_name = ', '.join(sections) if sections else basename
+            
+            # 各行をチェック
+            for idx, row in df.iterrows():
+                type_val = row[type_col]
+                time_val = row[time_col]
+                number_val = row[number_col]
+                
+                # type=Tかつnumberが入力されている場合
+                if pd.notna(type_val) and str(type_val).strip().upper() == 'T':
+                    if pd.notna(number_val) and str(number_val).strip() != '':
+                        try:
+                            zekken = int(float(number_val))
+                            time_str = str(time_val) if pd.notna(time_val) else ''
+                            
+                            error_msg = f"⚠️ 計測タイプ確認\n"
+                            error_msg += f"区間 '{section_name}' で手動計測（type=T）の時刻にゼッケン {zekken} が入力されています。\n"
+                            error_msg += f"  時刻: {time_str}\n"
+                            error_msg += f"  ファイル: {os.path.basename(csv_file)}\n"
+                            error_msg += "確認してください。"
+                            
+                            error = ValidationError(
+                                error_type="measurement_type",
+                                message=error_msg,
+                                details={
+                                    "section": section_name,
+                                    "time": time_str,
+                                    "zekken": zekken,
+                                    "file": os.path.basename(csv_file)
+                                },
+                                allow_confirmation=True
+                            )
+                            errors.append(error)
+                        except (ValueError, TypeError):
+                            pass  # numberが数値に変換できない場合はスキップ
+        
+        except Exception as e:
+            logger.warning(f"計測タイプチェック中にエラー: {csv_file}: {str(e)}")
+            continue
+    
+    return errors
+
+
+def check_measurement_deficiency(calc_engine, sections: List) -> List[ValidationError]:
+    """
+    計測データ不備確認
+    PC競技：その区間の総通過台数の半数以上が1秒以上ずれている
+    CO競技：その区間の総通過台数の半数以上が得点を取得できていない
+    PCGは不要
+    """
+    errors = []
+    
+    if not calc_engine or not hasattr(calc_engine, 'results'):
+        return errors
+    
+    # 区間ごとにチェック
+    for section in sections:
+        section_name = section.section
+        section_type = None
+        
+        # 区間タイプを判定
+        if section_name.startswith("PCG"):
+            continue  # PCGはスキップ
+        elif section_name.startswith("PC"):
+            section_type = "PC"
+        elif section_name.startswith("CO"):
+            section_type = "CO"
+        else:
+            continue  # 不明な区間タイプはスキップ
+        
+        # この区間の結果を集計
+        total_count = 0
+        problematic_count = 0
+        
+        for zekken in calc_engine.results.keys():
+            if section_name not in calc_engine.results[zekken]:
+                continue
+            
+            result = calc_engine.results[zekken][section_name]
+            
+            # ステータスがある場合はスキップ
+            if result.status:
+                continue
+            
+            total_count += 1
+            
+            if section_type == "PC":
+                # PC競技: 1秒以上ずれているかチェック
+                if result.diff is not None and abs(result.diff) >= 1.0:
+                    problematic_count += 1
+            
+            elif section_type == "CO":
+                # CO競技: 得点を取得できていないかチェック
+                if result.point == 0:
+                    problematic_count += 1
+        
+        # 半数以上が問題ありの場合
+        if total_count > 0 and problematic_count >= total_count / 2:
+            if section_type == "PC":
+                error_msg = f"⚠️ 計測データ不備（PC競技）\n"
+                error_msg += f"区間 '{section_name}' で総通過台数 {total_count}台のうち、\n"
+                error_msg += f"{problematic_count}台（{problematic_count/total_count*100:.1f}%）が1秒以上ずれています。\n"
+                error_msg += "計測データを確認してください。"
+            else:  # CO
+                error_msg = f"⚠️ 計測データ不備（CO競技）\n"
+                error_msg += f"区間 '{section_name}' で総通過台数 {total_count}台のうち、\n"
+                error_msg += f"{problematic_count}台（{problematic_count/total_count*100:.1f}%）が得点を取得できていません。\n"
+                error_msg += "計測データを確認してください。"
+            
+            error = ValidationError(
+                error_type="measurement_deficiency",
+                message=error_msg,
+                details={
+                    "section": section_name,
+                    "type": section_type,
+                    "total_count": total_count,
+                    "problematic_count": problematic_count
+                },
+                allow_confirmation=True
+            )
+            errors.append(error)
     
     return errors
