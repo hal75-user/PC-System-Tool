@@ -1303,7 +1303,11 @@ class SummaryTableWidget(QWidget):
             year_value = row.get('車両製造年', '')
             if year_value and pd.notna(year_value):
                 try:
-                    year_str = str(int(float(year_value)))
+                    # 既に整数の場合は直接変換、浮動小数点数の場合はfloat経由で変換
+                    if isinstance(year_value, int):
+                        year_str = str(year_value)
+                    else:
+                        year_str = str(int(float(year_value)))
                 except (ValueError, TypeError):
                     year_str = str(year_value)
             else:

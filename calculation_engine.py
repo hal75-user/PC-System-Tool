@@ -289,7 +289,7 @@ class CalculationEngine:
         """
         return self.get_total_score(zekken)
     
-    def get_score_for_sections(self, zekken: int, sections: list) -> int:
+    def get_score_for_sections(self, zekken: int, sections: List[str]) -> int:
         """指定された区間のみの得点を計算
         
         Args:
