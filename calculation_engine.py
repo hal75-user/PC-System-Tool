@@ -299,6 +299,7 @@ class CalculationEngine:
         Returns:
             指定区間の総合得点（int変換により小数点以下切り捨て）
             計算式: int((PC + PCG) * 係数 * 年齢係数 + CO)
+            注: 得点は常に正の値であり、int()による0方向への切り捨てで問題ない
         """
         # entries 情報取得
         entry = self.config.entries_dict.get(zekken)

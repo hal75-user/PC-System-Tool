@@ -1299,10 +1299,11 @@ class SummaryTableWidget(QWidget):
             car_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 4, car_item)
             
-            # 車両製造年 (整数表示)
+            # 車両製造年 (整数表示、小数点以下は切り捨て)
             year_value = row.get('車両製造年', '')
             if year_value and pd.notna(year_value):
                 try:
+                    # int(float())で小数点以下を切り捨て（例: 1928.0 -> 1928）
                     year_str = str(int(float(year_value)))
                 except (ValueError, TypeError):
                     year_str = str(year_value)
