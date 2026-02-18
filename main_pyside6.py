@@ -785,6 +785,9 @@ class FinalStatusDialog(QDialog):
         self.app_config.final_status = {}
         self.app_config.penalties = {}
         
+        # 無効なペナルティ値をチェック
+        invalid_penalties = []
+        
         for row_idx, zekken in enumerate(self.zekkens):
             # ペナルティを保存
             penalty_item = self.table.item(row_idx, 1)
@@ -794,7 +797,7 @@ class FinalStatusDialog(QDialog):
                     if penalty_value != 0.0:
                         self.app_config.set_penalty(zekken, penalty_value)
                 except ValueError:
-                    pass  # 無効な値は無視
+                    invalid_penalties.append((zekken, penalty_item.text()))
             
             # ステータスを保存
             for col_idx, status in enumerate(self.status_options, start=2):
@@ -803,8 +806,22 @@ class FinalStatusDialog(QDialog):
                     self.app_config.set_final_status(zekken, status)
                     break
         
+        # 無効なペナルティがあれば警告を表示
+        if invalid_penalties:
+            warning_msg = "以下のゼッケンのペナルティ値が無効なため、保存されませんでした:\n\n"
+            for zekken, value in invalid_penalties:
+                warning_msg += f"  ゼッケン {zekken}: '{value}'\n"
+            warning_msg += "\nペナルティは数値で入力してください。"
+            QMessageBox.warning(self, "警告", warning_msg)
+        
         self.app_config.save()
-        QMessageBox.information(self, "成功", "最終ステータス設定とペナルティを保存しました")
+        
+        if invalid_penalties:
+            QMessageBox.information(self, "保存完了（一部警告あり）", 
+                                  "有効なデータは保存されましたが、一部のペナルティ値が無効でした。")
+        else:
+            QMessageBox.information(self, "成功", "最終ステータス設定とペナルティを保存しました")
+        
         self.accept()
     
     def _clear_all(self):

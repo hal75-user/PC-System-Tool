@@ -174,6 +174,8 @@ class OutputFormatter:
         result_df = pd.concat([normal_df, status_df], ignore_index=True)
         
         # 後方互換性のため、'No' を 'ゼッケン'、'Result' を '順位' としても参照できるようにする
+        # ResultTableWidget (main_pyside6.py の line 994, 996) は 'ゼッケン' と '順位' 列を使用している
+        # 将来的には ResultTableWidget を 'No' と 'Result' 列を使用するように変更することを推奨
         result_df['ゼッケン'] = result_df['No']
         result_df['順位'] = result_df['Result']
         
@@ -256,6 +258,8 @@ class OutputFormatter:
         result_df = pd.concat([normal_df, status_df], ignore_index=True)
         
         # 後方互換性のため、'No' を 'ゼッケン'、'Result' を '順位' としても参照できるようにする
+        # ResultTableWidget (main_pyside6.py の line 994, 996) は 'ゼッケン' と '順位' 列を使用している
+        # 将来的には ResultTableWidget を 'No' と 'Result' 列を使用するように変更することを推奨
         result_df['ゼッケン'] = result_df['No']
         result_df['順位'] = result_df['Result']
         
