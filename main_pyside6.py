@@ -332,7 +332,9 @@ class StatusMatrixDialog(QDialog):
                 elif group_idx > 1 and len(self.tab_widgets) > 1:
                     break
         
-        layout.addWidget(self.tab_widget, stretch=8)  # 80%のスペースを確保
+        # タブウィジェットを追加（stretch=8で画面の約80%を確保）
+        # 上部のフィルター部分が20%程度を占めるため、残りの80%をテーブル表示に割り当て
+        layout.addWidget(self.tab_widget, stretch=8)
         
         # 下部ボタン
         bottom_layout = QHBoxLayout()
@@ -452,6 +454,16 @@ class StatusMatrixDialog(QDialog):
 class StatusMatrixTabWidget(QWidget):
     """ステータスマトリックスの1つのタブ"""
     
+    # ステータスと省略形の対応マップ
+    STATUS_ABBREV_MAP = {"RIT": "R", "N.C.": "N", "BLNK": "B", "": ""}
+    ABBREV_STATUS_MAP = {"R": "RIT", "N": "N.C.", "B": "BLNK", "": ""}
+    
+    # 列幅定数
+    ZEKKEN_COLUMN_WIDTH = 40
+    SECTION_COLUMN_WIDTH = 30
+    PENALTY_COLUMN_WIDTH = 40
+    TOTAL_RESULT_COLUMN_WIDTH = 30
+    
     def __init__(self, parent_dialog, zekkens, sections):
         super().__init__()
         self.parent_dialog = parent_dialog
@@ -464,13 +476,11 @@ class StatusMatrixTabWidget(QWidget):
     
     def _status_to_abbrev(self, status):
         """ステータスを省略形に変換"""
-        abbrev_map = {"RIT": "R", "N.C.": "N", "BLNK": "B", "": ""}
-        return abbrev_map.get(status, status)
+        return self.STATUS_ABBREV_MAP.get(status, status)
     
     def _abbrev_to_status(self, abbrev):
         """省略形をステータスに変換"""
-        status_map = {"R": "RIT", "N": "N.C.", "B": "BLNK", "": ""}
-        return status_map.get(abbrev, abbrev)
+        return self.ABBREV_STATUS_MAP.get(abbrev, abbrev)
     
     def _create_widgets(self):
         layout = QVBoxLayout()
@@ -500,12 +510,12 @@ class StatusMatrixTabWidget(QWidget):
         self.penalty_col = len(self.sections) + 1
         self.total_result_col = len(self.sections) + 2
         
-        # 列幅を半分に設定
-        self.table.setColumnWidth(0, 40)  # ゼッケン列を半分に
+        # 列幅を設定（可読性向上のため半分に縮小）
+        self.table.setColumnWidth(0, self.ZEKKEN_COLUMN_WIDTH)
         for col_idx in range(1, len(self.sections) + 1):
-            self.table.setColumnWidth(col_idx, 30)  # 区間列を半分に
-        self.table.setColumnWidth(self.penalty_col, 40)  # ペナルティ列を半分に
-        self.table.setColumnWidth(self.total_result_col, 30)  # Total Result列を半分に
+            self.table.setColumnWidth(col_idx, self.SECTION_COLUMN_WIDTH)
+        self.table.setColumnWidth(self.penalty_col, self.PENALTY_COLUMN_WIDTH)
+        self.table.setColumnWidth(self.total_result_col, self.TOTAL_RESULT_COLUMN_WIDTH)
         
         # データ入力
         for row_idx, zekken in enumerate(self.all_zekkens):
