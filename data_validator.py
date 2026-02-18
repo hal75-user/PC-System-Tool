@@ -398,7 +398,8 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                 problem_details = []
                 
                 # 逆転を検出（expected_passedに両方とも存在する区間のみ）
-                # O(1)ルックアップのためにインデックスマップを作成
+                # インデックスマップを作成してO(1)ルックアップを実現
+                # これにより、以降のループ内でlist.index()を使うO(n²)を回避
                 expected_passed_idx = {section: idx for idx, section in enumerate(expected_passed)}
                 expected_order_idx = {section: idx for idx, section in enumerate(expected_order)}
                 
