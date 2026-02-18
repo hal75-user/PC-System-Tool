@@ -265,49 +265,46 @@ class StatusMatrixDialog(QDialog):
         
         # フィルターUI
         filter_group_layout = QVBoxLayout()
-        filter_label = QLabel("ゼッケン番号フィルター:")
-        filter_label.setStyleSheet("font-weight: bold;")
-        filter_group_layout.addWidget(filter_label)
         
-        # フィルター条件リストとボタン
+        # フィルター条件とボタンを横並びに
         filter_controls = QHBoxLayout()
         
-        # フィルター条件を表示するスクロールエリア
-        self.filter_scroll = QScrollArea()
-        self.filter_scroll.setMaximumHeight(100)
-        self.filter_scroll.setWidgetResizable(True)
+        filter_label = QLabel("ゼッケン番号フィルター:")
+        filter_label.setStyleSheet("font-weight: bold;")
+        filter_controls.addWidget(filter_label)
         
-        self.filter_widget = QWidget()
-        self.filter_layout = QVBoxLayout(self.filter_widget)
-        self.filter_layout.setAlignment(Qt.AlignTop)
-        self.filter_scroll.setWidget(self.filter_widget)
-        
-        filter_controls.addWidget(self.filter_scroll, stretch=3)
-        
-        # フィルターボタン類
-        filter_buttons = QVBoxLayout()
-        
+        # フィルターボタン類を横並びに
         add_filter_btn = QPushButton("+ 条件追加")
         add_filter_btn.clicked.connect(self._add_filter_condition)
-        filter_buttons.addWidget(add_filter_btn)
+        filter_controls.addWidget(add_filter_btn)
         
         apply_filter_btn = QPushButton("フィルター適用")
         apply_filter_btn.clicked.connect(self._apply_filter)
-        filter_buttons.addWidget(apply_filter_btn)
+        filter_controls.addWidget(apply_filter_btn)
         
         show_all_btn = QPushButton("全表示")
         show_all_btn.clicked.connect(self._show_all)
-        filter_buttons.addWidget(show_all_btn)
+        filter_controls.addWidget(show_all_btn)
         
-        filter_buttons.addStretch()
-        filter_controls.addLayout(filter_buttons)
-        
+        filter_controls.addStretch()
         filter_group_layout.addLayout(filter_controls)
+        
+        # フィルター条件を表示する横並びエリア
+        self.filter_scroll = QScrollArea()
+        self.filter_scroll.setMaximumHeight(60)
+        self.filter_scroll.setWidgetResizable(True)
+        
+        self.filter_widget = QWidget()
+        self.filter_layout = QHBoxLayout(self.filter_widget)  # 横並びに変更
+        self.filter_layout.setAlignment(Qt.AlignLeft)
+        self.filter_scroll.setWidget(self.filter_widget)
+        
+        filter_group_layout.addWidget(self.filter_scroll)
         top_layout.addLayout(filter_group_layout)
         
         layout.addLayout(top_layout)
         
-        # タブウィジェット
+        # タブウィジェット（画面の80%を占める）
         self.tab_widget = QTabWidget()
         
         # 全日タブ
@@ -335,7 +332,9 @@ class StatusMatrixDialog(QDialog):
                 elif group_idx > 1 and len(self.tab_widgets) > 1:
                     break
         
-        layout.addWidget(self.tab_widget)
+        # タブウィジェットを追加（stretch=8で画面の約80%を確保）
+        # 上部のフィルター部分が20%程度を占めるため、残りの80%をテーブル表示に割り当て
+        layout.addWidget(self.tab_widget, stretch=8)
         
         # 下部ボタン
         bottom_layout = QHBoxLayout()
@@ -361,19 +360,17 @@ class StatusMatrixDialog(QDialog):
         """フィルター条件を追加"""
         condition_widget = QWidget()
         condition_layout = QHBoxLayout(condition_widget)
-        condition_layout.setContentsMargins(0, 0, 0, 0)
+        condition_layout.setContentsMargins(0, 0, 5, 0)
         
         zekken_input = QLineEdit()
         zekken_input.setPlaceholderText("ゼッケン番号")
-        zekken_input.setMaximumWidth(150)
+        zekken_input.setMaximumWidth(80)
         condition_layout.addWidget(zekken_input)
         
         remove_btn = QPushButton("×")
-        remove_btn.setMaximumWidth(30)
+        remove_btn.setMaximumWidth(25)
         remove_btn.clicked.connect(lambda: self._remove_filter_condition(condition_widget))
         condition_layout.addWidget(remove_btn)
-        
-        condition_layout.addStretch()
         
         self.filter_layout.addWidget(condition_widget)
         self.filter_conditions.append(zekken_input)
@@ -457,6 +454,16 @@ class StatusMatrixDialog(QDialog):
 class StatusMatrixTabWidget(QWidget):
     """ステータスマトリックスの1つのタブ"""
     
+    # ステータスと省略形の対応マップ
+    STATUS_ABBREV_MAP = {"RIT": "R", "N.C.": "N", "BLNK": "B", "": ""}
+    ABBREV_STATUS_MAP = {"R": "RIT", "N": "N.C.", "B": "BLNK", "": ""}
+    
+    # 列幅定数
+    ZEKKEN_COLUMN_WIDTH = 40
+    SECTION_COLUMN_WIDTH = 30
+    PENALTY_COLUMN_WIDTH = 40
+    TOTAL_RESULT_COLUMN_WIDTH = 30
+    
     def __init__(self, parent_dialog, zekkens, sections):
         super().__init__()
         self.parent_dialog = parent_dialog
@@ -466,6 +473,14 @@ class StatusMatrixTabWidget(QWidget):
         self.filtered_zekkens = None  # Noneは全表示
         
         self._create_widgets()
+    
+    def _status_to_abbrev(self, status):
+        """ステータスを省略形に変換"""
+        return self.STATUS_ABBREV_MAP.get(status, status)
+    
+    def _abbrev_to_status(self, abbrev):
+        """省略形をステータスに変換"""
+        return self.ABBREV_STATUS_MAP.get(abbrev, abbrev)
     
     def _create_widgets(self):
         layout = QVBoxLayout()
@@ -494,6 +509,13 @@ class StatusMatrixTabWidget(QWidget):
         # ペナルティ列とTotal Result列のインデックスを記憶
         self.penalty_col = len(self.sections) + 1
         self.total_result_col = len(self.sections) + 2
+        
+        # 列幅を設定（可読性向上のため半分に縮小）
+        self.table.setColumnWidth(0, self.ZEKKEN_COLUMN_WIDTH)
+        for col_idx in range(1, len(self.sections) + 1):
+            self.table.setColumnWidth(col_idx, self.SECTION_COLUMN_WIDTH)
+        self.table.setColumnWidth(self.penalty_col, self.PENALTY_COLUMN_WIDTH)
+        self.table.setColumnWidth(self.total_result_col, self.TOTAL_RESULT_COLUMN_WIDTH)
         
         # データ入力
         for row_idx, zekken in enumerate(self.all_zekkens):
@@ -574,7 +596,8 @@ class StatusMatrixTabWidget(QWidget):
     
     def _apply_status_to_item(self, item):
         """アイテムにステータスを適用"""
-        item.setText(self.current_status)
+        abbrev = self._status_to_abbrev(self.current_status)
+        item.setText(abbrev)
         self._update_cell_color(item, self.current_status)
     
     def _update_cell_color(self, item, status):
@@ -594,16 +617,18 @@ class StatusMatrixTabWidget(QWidget):
             # 区間ステータス
             for col_idx, section in enumerate(self.sections, start=1):
                 current_status = app_config.get_section_status(zekken, section) or ""
+                abbrev = self._status_to_abbrev(current_status)
                 item = self.table.item(row_idx, col_idx)
                 if item:
-                    item.setText(current_status)
+                    item.setText(abbrev)
                     self._update_cell_color(item, current_status)
             
             # Total Result ステータス
             total_result_status = app_config.get_final_status(zekken) or ""
+            abbrev = self._status_to_abbrev(total_result_status)
             total_result_item = self.table.item(row_idx, self.total_result_col)
             if total_result_item:
-                total_result_item.setText(total_result_status)
+                total_result_item.setText(abbrev)
                 self._update_cell_color(total_result_item, total_result_status)
             
             # ペナルティ
@@ -622,14 +647,16 @@ class StatusMatrixTabWidget(QWidget):
             for col_idx, section in enumerate(self.sections, start=1):
                 item = self.table.item(row_idx, col_idx)
                 if item:
-                    status = item.text()
+                    abbrev = item.text()
+                    status = self._abbrev_to_status(abbrev)
                     if status:
                         app_config.set_section_status(zekken, section, status)
             
             # Total Result ステータス
             total_result_item = self.table.item(row_idx, self.total_result_col)
             if total_result_item:
-                status = total_result_item.text()
+                abbrev = total_result_item.text()
+                status = self._abbrev_to_status(abbrev)
                 if status:
                     app_config.set_final_status(zekken, status)
             
@@ -665,7 +692,7 @@ class FinalStatusDialog(QDialog):
         self.setMinimumSize(600, 500)
         
         self.zekkens = sorted(config_loader.entries_dict.keys())
-        self.status_options = ["RIT", "N.C.", "BLNK"]
+        self.status_options = ["", "RIT", "N.C.", "BLNK"]
         
         self._create_widgets()
         self._load_current_status()
@@ -674,21 +701,22 @@ class FinalStatusDialog(QDialog):
         layout = QVBoxLayout()
         
         # 説明
-        label = QLabel("ペナルティ列に数値を入力、またはステータス列(RIT/N.C./BLNK)をクリックして設定します")
+        label = QLabel("ペナルティ列に数値を入力、またはステータス列(空白/RIT/N.C./BLNK)をクリックして設定します")
         layout.addWidget(label)
         
         # テーブル: 縦軸=ゼッケン、横軸=ペナルティ+ステータス
         self.table = QTableWidget()
         self.table.setRowCount(len(self.zekkens))
-        self.table.setColumnCount(5)  # ゼッケン, ペナルティ, RIT, N.C., BLNK
-        self.table.setHorizontalHeaderLabels(["ゼッケン", "ペナルティ", "RIT", "N.C.", "BLNK"])
+        self.table.setColumnCount(6)  # ゼッケン, ペナルティ, 空白, RIT, N.C., BLNK
+        self.table.setHorizontalHeaderLabels(["ゼッケン", "ペナルティ", "空白", "RIT", "N.C.", "BLNK"])
         
         # 列幅設定
         self.table.setColumnWidth(0, 80)   # ゼッケン
         self.table.setColumnWidth(1, 100)  # ペナルティ
-        self.table.setColumnWidth(2, 80)   # RIT
-        self.table.setColumnWidth(3, 80)   # N.C.
-        self.table.setColumnWidth(4, 80)   # BLNK
+        self.table.setColumnWidth(2, 80)   # 空白
+        self.table.setColumnWidth(3, 80)   # RIT
+        self.table.setColumnWidth(4, 80)   # N.C.
+        self.table.setColumnWidth(5, 80)   # BLNK
         
         for row_idx, zekken in enumerate(self.zekkens):
             # ゼッケン列（編集不可）
@@ -749,7 +777,7 @@ class FinalStatusDialog(QDialog):
             
             # 最終ステータスを読み込み
             current_status = self.app_config.get_final_status(zekken) or ""
-            if current_status in self.status_options:
+            if current_status == "" or current_status in self.status_options:
                 # 該当するステータス列にマークをつける
                 col_idx = 2 + self.status_options.index(current_status)
                 status_item = self.table.item(row_idx, col_idx)
@@ -811,7 +839,12 @@ class FinalStatusDialog(QDialog):
             for col_idx, status in enumerate(self.status_options, start=2):
                 status_item = self.table.item(row_idx, col_idx)
                 if status_item and status_item.text() == "✓":
-                    self.app_config.set_final_status(zekken, status)
+                    if status == "":
+                        # 空白が選択された場合は、final_statusから削除
+                        if zekken in self.app_config.final_status:
+                            del self.app_config.final_status[zekken]
+                    else:
+                        self.app_config.set_final_status(zekken, status)
                     break
         
         # 無効なペナルティがあれば警告を表示
