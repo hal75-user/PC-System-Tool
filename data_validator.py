@@ -359,11 +359,8 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
         for group, passed_sections in group_passages.items():
             expected_order = group_section_order[group]
             
-            # グループとして全て通過していないゼッケンは無視
-            if len(passed_sections) < 1:
-                continue
-            
-            # 1つの区間しか通過していない場合もスキップ
+            # 1つの区間しか通過していない場合はスキップ
+            # （グループとして全て通過していないゼッケンも含む）
             if len(passed_sections) < 2:
                 continue
             
