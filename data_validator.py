@@ -40,18 +40,16 @@ class ValidationError:
             return f"{self.error_type}:{self.details.get('section', '')}:{self.details.get('zekken', '')}"
         
         elif self.error_type == "section_order":
-            # 区間通過順: 最初の区間の基準順番と異なっている区間とその順番が同じ
+            # 区間通過順: グループと基準区間が同じ（グループごとに1つ）
+            group = self.details.get('group', '')
             first_section = self.details.get('first_section', '')
-            base_order = str(self.details.get('base_order', []))
-            section = self.details.get('section', '')
-            current_order = str(self.details.get('current_order', []))
-            return f"{self.error_type}:{first_section}:{base_order}:{section}:{current_order}"
+            return f"{self.error_type}:{group}:{first_section}"
         
         elif self.error_type == "zekken_order":
-            # ゼッケン通過順: 順番通りに通過していないゼッケンとその通過順番が同じ
+            # ゼッケン通過順: ゼッケンとグループが同じ（ゼッケンごと、グループごとに1つ）
             zekken = self.details.get('zekken', '')
-            passed_sections = str(self.details.get('passed_sections', []))
-            return f"{self.error_type}:{zekken}:{passed_sections}"
+            group = self.details.get('group', '')
+            return f"{self.error_type}:{zekken}:{group}"
         
         elif self.error_type == "invalid_status":
             # ステータス不正: 走行している区間とゼッケンとステータスが同じ
@@ -214,6 +212,7 @@ def check_section_passage_order(results: List, sections: List) -> List[Validatio
     """
     区間通過順チェック
     同じグループ内の各区間で、ゼッケンの通過順序が一致するかチェック
+    グループごとに1つのエラーを生成し、基準と異なる区間を詳細に記載
     """
     errors = []
     
@@ -247,6 +246,9 @@ def check_section_passage_order(results: List, sections: List) -> List[Validatio
         if not base_order:
             continue  # 基準区間にデータがない場合はスキップ
         
+        # グループ内の全区間の問題を収集
+        section_issues = []
+        
         # 他の区間と比較
         for section in group_section_list[1:]:
             section_name = section.section
@@ -269,73 +271,56 @@ def check_section_passage_order(results: List, sections: List) -> List[Validatio
             base_common_order = [z for z in base_order if z in common_zekken]
             current_common_order = [z for z in current_order if z in common_zekken]
             
+            # この区間の問題を記録
+            section_detail = []
+            
             # 順序が異なる場合
             if base_common_order != current_common_order:
-                error_msg = f"⚠️ 区間通過順エラー\n"
-                error_msg += f"グループ {group} で通過順序が異なります:\n"
-                error_msg += f"  基準区間 {first_section}: {base_common_order}\n"
-                error_msg += f"  区間 {section_name}: {current_common_order}\n"
-                error_msg += "確認してください。"
-                
-                error = ValidationError(
-                    error_type="section_order",
-                    message=error_msg,
-                    details={
-                        "group": group,
-                        "first_section": first_section,
-                        "base_order": base_common_order,
-                        "section": section_name,
-                        "current_order": current_common_order
-                    },
-                    allow_confirmation=True
-                )
-                errors.append(error)
+                section_detail.append(f"    通過順序が異なります:")
+                section_detail.append(f"      基準: {base_common_order}")
+                section_detail.append(f"      実際: {current_common_order}")
             
             # 歯抜けチェック（基準にあるが現在にない）
             missing = base_set - current_set
             if missing:
-                error_msg = f"⚠️ 区間通過順エラー（歯抜け）\n"
-                error_msg += f"グループ {group} の区間 {section_name} で、\n"
-                error_msg += f"基準区間 {first_section} にあるゼッケンが欠けています: {sorted(missing)}\n"
-                error_msg += "確認してください。"
-                
-                error = ValidationError(
-                    error_type="section_order",
-                    message=error_msg,
-                    details={
-                        "group": group,
-                        "first_section": first_section,
-                        "base_order": base_order,
-                        "section": section_name,
-                        "current_order": current_order,
-                        "missing": sorted(missing)
-                    },
-                    allow_confirmation=True
-                )
-                errors.append(error)
+                section_detail.append(f"    基準にあるゼッケンが欠けています: {sorted(missing)}")
             
             # 追加ゼッケンチェック（現在にあるが基準にない）
             extra = current_set - base_set
             if extra:
-                error_msg = f"⚠️ 区間通過順エラー（追加）\n"
-                error_msg += f"グループ {group} の区間 {section_name} で、\n"
-                error_msg += f"基準区間 {first_section} にないゼッケンがあります: {sorted(extra)}\n"
-                error_msg += "確認してください。"
-                
-                error = ValidationError(
-                    error_type="section_order",
-                    message=error_msg,
-                    details={
-                        "group": group,
-                        "first_section": first_section,
-                        "base_order": base_order,
-                        "section": section_name,
-                        "current_order": current_order,
-                        "extra": sorted(extra)
-                    },
-                    allow_confirmation=True
-                )
-                errors.append(error)
+                section_detail.append(f"    基準にないゼッケンがあります: {sorted(extra)}")
+            
+            # 問題があれば記録
+            if section_detail:
+                section_issues.append((section_name, section_detail))
+        
+        # グループに問題があれば1つのエラーを生成
+        if section_issues:
+            error_msg = f"⚠️ 区間通過順エラー\n"
+            error_msg += f"グループ {group} で基準区間 {first_section} と異なる区間があります:\n"
+            error_msg += f"  基準区間 {first_section} の通過順: {base_order}\n\n"
+            
+            for section_name, details in section_issues:
+                error_msg += f"  【区間 {section_name}】\n"
+                error_msg += '\n'.join(details) + '\n\n'
+            
+            error_msg += "確認してください。"
+            
+            # details には全ての問題のある区間情報を含める
+            all_sections_with_issues = [s for s, _ in section_issues]
+            
+            error = ValidationError(
+                error_type="section_order",
+                message=error_msg,
+                details={
+                    "group": group,
+                    "first_section": first_section,
+                    "base_order": base_order,
+                    "sections_with_issues": all_sections_with_issues
+                },
+                allow_confirmation=True
+            )
+            errors.append(error)
     
     return errors
 
@@ -344,6 +329,7 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
     """
     ゼッケン通過順チェック
     各ゼッケンがグループ内の区間を正しい順序で通過しているかチェック
+    ゼッケンごと、グループごとに1つのエラーを生成し、逆転や歯抜けの詳細を記載
     """
     errors = []
     
@@ -373,18 +359,71 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
         for group, passed_sections in group_passages.items():
             expected_order = group_section_order[group]
             
+            # グループとして全て通過していないゼッケンは無視
+            if len(passed_sections) < 1:
+                continue
+            
+            # 1つの区間しか通過していない場合もスキップ
             if len(passed_sections) < 2:
-                continue  # 1つの区間しか通過していない場合はスキップ
+                continue
             
             # 通過した区間の期待される順序を取得
             expected_passed = [s for s in expected_order if s in passed_sections]
             
             # 実際の通過順序と比較
             if passed_sections != expected_passed:
+                # 詳細な問題箇所を特定
+                problem_details = []
+                
+                # 逆転を検出
+                reversals = []
+                for i in range(len(passed_sections) - 1):
+                    curr_section = passed_sections[i]
+                    next_section = passed_sections[i + 1]
+                    
+                    # 期待順序での位置を確認
+                    try:
+                        curr_idx = expected_passed.index(curr_section)
+                        next_idx = expected_passed.index(next_section)
+                        
+                        # 逆転している場合
+                        if curr_idx > next_idx:
+                            reversals.append(f"{curr_section} → {next_section}")
+                    except ValueError:
+                        pass
+                
+                if reversals:
+                    problem_details.append(f"  逆転: {', '.join(reversals)}")
+                
+                # 歯抜けを検出（通過すべきだったが通過していない区間）
+                passed_set = set(passed_sections)
+                expected_set = set(expected_passed)
+                
+                # 期待される区間の範囲を特定
+                if expected_passed:
+                    first_expected_idx = expected_order.index(expected_passed[0])
+                    last_expected_idx = expected_order.index(expected_passed[-1])
+                    
+                    # その範囲内で通過していない区間を検出
+                    missing_sections = []
+                    for idx in range(first_expected_idx, last_expected_idx + 1):
+                        section = expected_order[idx]
+                        if section not in passed_set:
+                            missing_sections.append(section)
+                    
+                    if missing_sections:
+                        problem_details.append(f"  歯抜け（未通過）: {', '.join(missing_sections)}")
+                
+                # エラーメッセージを構築
                 error_msg = f"⚠️ ゼッケン通過順エラー\n"
-                error_msg += f"ゼッケン {zekken} がグループ {group} で不正な順序で通過:\n"
-                error_msg += f"  期待: {' → '.join(expected_passed)}\n"
-                error_msg += f"  実際: {' → '.join(passed_sections)}\n"
+                error_msg += f"ゼッケン {zekken} がグループ {group} で不正な順序で通過しています:\n\n"
+                error_msg += f"  期待される順序: {' → '.join(expected_passed)}\n"
+                error_msg += f"  実際の通過順序: {' → '.join(passed_sections)}\n\n"
+                
+                if problem_details:
+                    error_msg += "【問題箇所】\n"
+                    error_msg += '\n'.join(problem_details) + '\n\n'
+                
                 error_msg += "確認してください。"
                 
                 error = ValidationError(
