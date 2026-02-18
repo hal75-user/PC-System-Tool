@@ -5,6 +5,7 @@ PySide6 を使った高機能 GUI アプリケーション
 
 import sys
 import pandas as pd
+from typing import List
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTableWidget, QTableWidgetItem, QPushButton, QTabWidget,
@@ -22,11 +23,148 @@ from output_formatter import OutputFormatter
 from app_config import AppConfig
 from logging_config import init_app_logging, get_logger
 from sample_generator import generate_sample_files
-from data_validator import validate_all
+from data_validator import validate_all, ValidationError
 
 # ロギング初期化
 init_app_logging()
 logger = get_logger(__name__)
+
+
+class ErrorDialog(QDialog):
+    """エラー確認ダイアログ"""
+    
+    def __init__(self, parent, errors: List[ValidationError]):
+        super().__init__(parent)
+        self.errors = errors
+        self.setWindowTitle("エラー確認")
+        self.setMinimumSize(800, 600)
+        
+        self._create_widgets()
+    
+    def _create_widgets(self):
+        layout = QVBoxLayout()
+        
+        # 説明ラベル
+        info_label = QLabel("検出されたエラー/警告の一覧です。\n"
+                           "各エラーを確認した後、「確認」ボタンをクリックしてください。")
+        layout.addWidget(info_label)
+        
+        # エラーリスト
+        self.error_table = QTableWidget()
+        self.error_table.setColumnCount(3)
+        self.error_table.setHorizontalHeaderLabels(["ステータス", "エラー種別", "詳細"])
+        self.error_table.horizontalHeader().setStretchLastSection(True)
+        self.error_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.error_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        
+        # エラーを表示
+        self._populate_errors()
+        
+        layout.addWidget(self.error_table)
+        
+        # ボタン
+        button_layout = QHBoxLayout()
+        
+        self.confirm_btn = QPushButton("選択したエラーを確認済みにする")
+        self.confirm_btn.clicked.connect(self._confirm_selected_error)
+        button_layout.addWidget(self.confirm_btn)
+        
+        self.unconfirm_btn = QPushButton("選択したエラーを未確認に戻す")
+        self.unconfirm_btn.clicked.connect(self._unconfirm_selected_error)
+        button_layout.addWidget(self.unconfirm_btn)
+        
+        button_layout.addStretch()
+        
+        close_btn = QPushButton("閉じる")
+        close_btn.clicked.connect(self.accept)
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+    
+    def _populate_errors(self):
+        """エラーをテーブルに表示"""
+        self.error_table.setRowCount(len(self.errors))
+        
+        for row, error in enumerate(self.errors):
+            # ステータス列
+            status_item = QTableWidgetItem()
+            if error.confirmed:
+                status_item.setText("✓ 確認済み")
+                status_item.setBackground(QBrush(QColor(200, 255, 200)))  # 緑
+            else:
+                status_item.setText("未確認")
+                status_item.setBackground(QBrush(QColor(255, 200, 200)))  # 赤
+            status_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.error_table.setItem(row, 0, status_item)
+            
+            # エラー種別列
+            type_names = {
+                "csv_duplicate": "CSVファイル名重複",
+                "zekken_duplicate": "ゼッケン重複",
+                "section_order": "区間通過順",
+                "zekken_order": "ゼッケン通過順",
+                "invalid_status": "ステータス不正",
+                "measurement_type": "計測タイプ",
+                "measurement_deficiency": "計測データ不備"
+            }
+            type_item = QTableWidgetItem(type_names.get(error.error_type, error.error_type))
+            type_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.error_table.setItem(row, 1, type_item)
+            
+            # 詳細列
+            detail_item = QTableWidgetItem(error.message)
+            detail_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.error_table.setItem(row, 2, detail_item)
+        
+        # 列幅を調整
+        self.error_table.setColumnWidth(0, 100)
+        self.error_table.setColumnWidth(1, 150)
+    
+    def _confirm_selected_error(self):
+        """選択したエラーを確認済みにする"""
+        selected_rows = self.error_table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "警告", "エラーを選択してください。")
+            return
+        
+        row = selected_rows[0].row()
+        error = self.errors[row]
+        
+        # 確認を許容しないエラーの場合は警告
+        if not error.allow_confirmation:
+            QMessageBox.critical(
+                self,
+                "確認不可",
+                "このエラーは確認済みにすることができません。\n\n"
+                "このエラーは重大な問題のため、必ず修正する必要があります。"
+            )
+            return
+        
+        # 確認済みに変更
+        error.confirmed = True
+        self._populate_errors()
+        QMessageBox.information(self, "成功", "エラーを確認済みにしました。")
+    
+    def _unconfirm_selected_error(self):
+        """選択したエラーを未確認に戻す"""
+        selected_rows = self.error_table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "警告", "エラーを選択してください。")
+            return
+        
+        row = selected_rows[0].row()
+        error = self.errors[row]
+        
+        # 未確認に戻す
+        error.confirmed = False
+        self._populate_errors()
+        QMessageBox.information(self, "成功", "エラーを未確認に戻しました。")
+    
+    def get_unconfirmed_count(self) -> int:
+        """未確認エラーの数を取得"""
+        return sum(1 for error in self.errors if not error.confirmed)
 
 
 class StatusMatrixDialog(QDialog):
@@ -1213,6 +1351,10 @@ class MainWindow(QMainWindow):
         self.calc_engine = None
         self.output_formatter = None
         
+        # エラー管理
+        self.validation_errors: List[ValidationError] = []
+        self.confirmed_errors_map = {}  # エラーキー → 確認済みステータス
+        
         # 自動読み込みフラグ
         self.auto_load_attempted = False
         
@@ -1332,23 +1474,33 @@ class MainWindow(QMainWindow):
         # メインレイアウト（縦方向）
         central_layout = QVBoxLayout()
         
-        # エラー表示エリア（最上部）
-        from PySide6.QtWidgets import QTextEdit
-        self.error_display = QTextEdit()
-        self.error_display.setReadOnly(True)
-        self.error_display.setMaximumHeight(120)
-        self.error_display.setStyleSheet("""
-            QTextEdit {
-                background-color: #FFF9E6;
-                color: #D32F2F;
-                border: 2px solid #FFB74D;
+        # エラー表示エリア（最上部）- ボタン形式に変更
+        error_widget = QWidget()
+        error_layout = QHBoxLayout()
+        error_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.error_status_btn = QPushButton("エラーなし")
+        self.error_status_btn.setMinimumHeight(40)
+        self.error_status_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #E8F5E9;
+                color: #2E7D32;
+                border: 2px solid #4CAF50;
                 border-radius: 4px;
                 padding: 8px;
                 font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #C8E6C9;
             }
         """)
-        self.error_display.setVisible(False)  # 初期状態は非表示
-        central_layout.addWidget(self.error_display)
+        self.error_status_btn.clicked.connect(self._open_error_dialog)
+        self.error_status_btn.setVisible(False)  # 初期状態は非表示
+        error_layout.addWidget(self.error_status_btn)
+        
+        error_widget.setLayout(error_layout)
+        central_layout.addWidget(error_widget)
         
         # 横方向のメインレイアウト
         main_layout = QHBoxLayout()
@@ -1484,23 +1636,82 @@ class MainWindow(QMainWindow):
         """ログメッセージを表示"""
         self.log_text.append(message)
     
-    def _show_errors(self, errors: list):
-        """エラーメッセージを表示"""
-        if not errors:
-            self._hide_errors()
+    def _update_error_status(self):
+        """エラーステータスボタンを更新"""
+        if not self.validation_errors:
+            self.error_status_btn.setVisible(False)
             return
         
-        error_text = "⚠️ エラー・警告が検出されました:\n\n"
-        for i, error in enumerate(errors, 1):
-            error_text += f"{i}. {error}\n\n"
+        # 未確認エラーの数をカウント
+        unconfirmed_count = sum(1 for err in self.validation_errors if not err.confirmed)
+        total_count = len(self.validation_errors)
         
-        self.error_display.setText(error_text)
-        self.error_display.setVisible(True)
+        if unconfirmed_count > 0:
+            # 未確認エラーがある場合
+            self.error_status_btn.setText(f"⚠️ エラーあり（未確認: {unconfirmed_count}/{total_count}）")
+            self.error_status_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #FFEBEE;
+                    color: #C62828;
+                    border: 2px solid #EF5350;
+                    border-radius: 4px;
+                    padding: 8px;
+                    font-weight: bold;
+                    font-size: 14px;
+                }
+                QPushButton:hover {
+                    background-color: #FFCDD2;
+                }
+            """)
+        else:
+            # すべて確認済み
+            self.error_status_btn.setText(f"✓ エラーなし（確認済み: {total_count}件）")
+            self.error_status_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #E8F5E9;
+                    color: #2E7D32;
+                    border: 2px solid #4CAF50;
+                    border-radius: 4px;
+                    padding: 8px;
+                    font-weight: bold;
+                    font-size: 14px;
+                }
+                QPushButton:hover {
+                    background-color: #C8E6C9;
+                }
+            """)
+        
+        self.error_status_btn.setVisible(True)
+    
+    def _open_error_dialog(self):
+        """エラー確認ダイアログを開く"""
+        if not self.validation_errors:
+            QMessageBox.information(self, "情報", "エラーはありません。")
+            return
+        
+        dialog = ErrorDialog(self, self.validation_errors)
+        dialog.exec()
+        
+        # ダイアログを閉じた後、ステータスを更新
+        self._update_error_status()
+    
+    def _show_errors(self, errors: List[ValidationError]):
+        """エラーメッセージを表示"""
+        self.validation_errors = errors
+        
+        # 以前に確認済みのエラーを復元
+        for error in self.validation_errors:
+            error_key = error.get_comparison_key()
+            if error_key in self.confirmed_errors_map:
+                error.confirmed = self.confirmed_errors_map[error_key]
+        
+        # ステータスを更新
+        self._update_error_status()
     
     def _hide_errors(self):
         """エラー表示を非表示にする"""
-        self.error_display.setVisible(False)
-        self.error_display.clear()
+        self.validation_errors = []
+        self.error_status_btn.setVisible(False)
     
     def load_settings(self):
         """Setting 読み込み"""
@@ -1557,6 +1768,12 @@ class MainWindow(QMainWindow):
             
             # データ検証を実行
             self.log("データ検証を実行中...")
+            
+            # 以前の確認済みステータスを保存
+            for error in self.validation_errors:
+                error_key = error.get_comparison_key()
+                self.confirmed_errors_map[error_key] = error.confirmed
+            
             validation_errors = validate_all(
                 self.app_config.race_folder,
                 self.race_parser.results,
@@ -1567,7 +1784,8 @@ class MainWindow(QMainWindow):
                 self.log(f"⚠ 警告: {len(validation_errors)}件のエラー/警告が検出されました")
                 self._show_errors(validation_errors)
                 for i, error in enumerate(validation_errors, 1):
-                    self.log(f"  警告{i}: {error.split(chr(10))[0]}")  # 最初の行のみログに表示
+                    error_msg = str(error).split('\n')[0]  # 最初の行のみログに表示
+                    self.log(f"  警告{i}: {error_msg}")
             else:
                 self.log("✓ データ検証: 問題なし")
                 self._hide_errors()
@@ -1587,12 +1805,13 @@ class MainWindow(QMainWindow):
             self.log("⚠ Warning: 先に ①②を実行してください")
             return
         
-        # エラーがある場合は警告を表示
-        if self.error_display.isVisible():
+        # 未確認エラーがある場合は警告を表示
+        unconfirmed_count = sum(1 for err in self.validation_errors if not err.confirmed)
+        if unconfirmed_count > 0:
             reply = QMessageBox.question(
                 self,
                 "データ検証エラー",
-                "データ検証でエラー/警告が検出されています。\n\n計算を続行しますか？\n\n（エラーの詳細は画面上部を確認してください）",
+                f"データ検証で{unconfirmed_count}件の未確認エラー/警告が検出されています。\n\n計算を続行しますか？\n\n（エラーの詳細は画面上部のボタンをクリックして確認してください）",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
@@ -1633,6 +1852,30 @@ class MainWindow(QMainWindow):
             self.log("✓ 順位付け 完了")
             self.log("✓ 得点計算 完了")
             self.log("✓ 総合得点算出 完了")
+            
+            # 計算完了後、計測データ不備チェックを実行
+            self.log("")
+            self.log("計測データ不備チェックを実行中...")
+            
+            # 以前の確認済みステータスを保存
+            for error in self.validation_errors:
+                error_key = error.get_comparison_key()
+                self.confirmed_errors_map[error_key] = error.confirmed
+            
+            # 再度検証を実行（今度はcalc_engineを渡す）
+            validation_errors = validate_all(
+                self.app_config.race_folder,
+                self.race_parser.results,
+                self.config_loader.section_list,
+                self.calc_engine
+            )
+            
+            if validation_errors:
+                new_error_count = len(validation_errors) - len(self.validation_errors)
+                if new_error_count > 0:
+                    self.log(f"⚠ 計測データ不備チェック: {new_error_count}件の追加エラーが検出されました")
+                self._show_errors(validation_errors)
+            
             self.log("")
             self.log("計算完了！")
             self.log("次に ④ 結果表示 をクリックしてください")
