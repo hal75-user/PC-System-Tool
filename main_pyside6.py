@@ -865,11 +865,6 @@ class ResultTableWidget(QWidget):
     def _create_widgets(self):
         layout = QVBoxLayout()
         
-        # 「すべて表示」ボタンのみ残す
-        self.all_btn = QPushButton("すべて表示")
-        self.all_btn.clicked.connect(lambda: self.set_filter(None))
-        layout.addWidget(self.all_btn)
-        
         # テーブル
         self.table = QTableWidget()
         # ソート機能を無効化
