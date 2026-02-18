@@ -84,6 +84,23 @@ class ValidationError:
         return self.message
 
 
+def truncate_for_log(items: List, max_items: int = MAX_LOG_ITEMS) -> str:
+    """
+    ログ出力用にリストを適切な長さに切り詰めて文字列化
+    
+    Args:
+        items: 切り詰める対象のリスト
+        max_items: 最大表示要素数
+        
+    Returns:
+        切り詰められた文字列表現
+    """
+    truncated = str(items[:max_items])
+    if len(items) > max_items:
+        truncated += '...'
+    return truncated
+
+
 def validate_all(race_folder: str, results: List, sections: List, 
                  calc_engine=None) -> List[ValidationError]:
     """
@@ -308,9 +325,9 @@ def check_section_passage_order(results: List, sections: List) -> List[Validatio
             error_msg += f"グループ {group} で基準区間 {first_section} と異なる区間があります:\n"
             error_msg += f"{ERROR_MSG_INDENT}基準区間 {first_section} の通過順: {base_order}\n\n"
             
-            for section_name, details in section_issues:
+            for section_name, section_details in section_issues:
                 error_msg += f"{ERROR_MSG_INDENT}【区間 {section_name}】\n"
-                error_msg += '\n'.join(details) + '\n\n'
+                error_msg += '\n'.join(section_details) + '\n\n'
             
             error_msg += "確認してください。"
             
@@ -433,18 +450,12 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                         if last_expected_idx is None:
                             missing_elements.append(f"last={expected_passed[-1]}")
                         
-                        # ログ用に配列を適切な長さに切り詰める
-                        expected_passed_str = str(expected_passed[:MAX_LOG_ITEMS]) + \
-                            ('...' if len(expected_passed) > MAX_LOG_ITEMS else '')
-                        expected_order_str = str(expected_order[:MAX_LOG_ITEMS]) + \
-                            ('...' if len(expected_order) > MAX_LOG_ITEMS else '')
-                        
                         logger.warning(
                             f"データ不整合検出: ゼッケン {zekken} のグループ {group} で "
                             f"expected_passed の要素 [{', '.join(missing_elements)}] が "
                             f"expected_order に見つかりません。"
-                            f"expected_passed={expected_passed_str}, "
-                            f"expected_order={expected_order_str}"
+                            f"expected_passed={truncate_for_log(expected_passed)}, "
+                            f"expected_order={truncate_for_log(expected_order)}"
                         )
                 
                 # エラーメッセージを構築
