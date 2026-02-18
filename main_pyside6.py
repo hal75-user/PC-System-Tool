@@ -501,6 +501,7 @@ class StatusMatrixTabWidget(QWidget):
             item = QTableWidgetItem(str(zekken))
             item.setFlags(Qt.ItemIsEnabled)
             item.setBackground(QBrush(QColor(240, 240, 240)))
+            item.setForeground(QBrush(QColor(0, 0, 0)))  # 黒文字
             self.table.setItem(row_idx, 0, item)
             
             # 各区間のセル
@@ -515,6 +516,7 @@ class StatusMatrixTabWidget(QWidget):
             penalty_item.setTextAlignment(Qt.AlignCenter)
             penalty_item.setData(Qt.UserRole, ("penalty", zekken))
             penalty_item.setBackground(QBrush(QColor(255, 250, 205)))  # 淡い黄色で区別
+            penalty_item.setForeground(QBrush(QColor(0, 0, 0)))  # 黒文字
             self.table.setItem(row_idx, self.penalty_col, penalty_item)
             
             # Total Result列（ステータス入力）
@@ -693,6 +695,7 @@ class FinalStatusDialog(QDialog):
             zekken_item = QTableWidgetItem(str(zekken))
             zekken_item.setFlags(Qt.ItemIsEnabled)
             zekken_item.setBackground(QBrush(QColor(240, 240, 240)))
+            zekken_item.setForeground(QBrush(QColor(0, 0, 0)))  # 黒文字
             zekken_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 0, zekken_item)
             
@@ -700,6 +703,7 @@ class FinalStatusDialog(QDialog):
             penalty_item = QTableWidgetItem("")
             penalty_item.setTextAlignment(Qt.AlignCenter)
             penalty_item.setBackground(QBrush(QColor(255, 250, 205)))  # 淡い黄色
+            penalty_item.setForeground(QBrush(QColor(0, 0, 0)))  # 黒文字
             self.table.setItem(row_idx, 1, penalty_item)
             
             # ステータス列（チェックボックス的に使用）
@@ -1287,8 +1291,16 @@ class SummaryTableWidget(QWidget):
             car_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 4, car_item)
             
-            # 車両製造年
-            year_item = QTableWidgetItem(str(row.get('車両製造年', '')))
+            # 車両製造年 (整数表示)
+            year_value = row.get('車両製造年', '')
+            if year_value and pd.notna(year_value):
+                try:
+                    year_str = str(int(float(year_value)))
+                except (ValueError, TypeError):
+                    year_str = str(year_value)
+            else:
+                year_str = ''
+            year_item = QTableWidgetItem(year_str)
             year_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 5, year_item)
             
@@ -1297,13 +1309,14 @@ class SummaryTableWidget(QWidget):
             class_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 6, class_item)
             
-            # Point (純粋な得点)
-            point_item = QTableWidgetItem(str(row.get('Point', 0)))
+            # Point (純粋な得点) - 小数点2桁表示
+            point_value = row.get('Point', 0)
+            point_item = QTableWidgetItem(f"{point_value:.2f}")
             point_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 7, point_item)
             
-            # H.C.L Point
-            hcl_item = QTableWidgetItem(str(hcl_point))
+            # H.C.L Point - 小数点2桁表示
+            hcl_item = QTableWidgetItem(f"{hcl_point:.2f}")
             hcl_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 8, hcl_item)
             
@@ -1314,8 +1327,8 @@ class SummaryTableWidget(QWidget):
                 penalty_item.setForeground(QBrush(QColor(255, 0, 0)))  # 赤字
             self.table.setItem(row_idx, 9, penalty_item)
             
-            # TotalPoint
-            total_item = QTableWidgetItem(str(int(total_point)))
+            # TotalPoint - 小数点2桁表示
+            total_item = QTableWidgetItem(f"{total_point:.2f}")
             total_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 10, total_item)
     
