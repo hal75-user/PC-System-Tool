@@ -373,15 +373,18 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                 problem_details = []
                 
                 # 逆転を検出（expected_passedに両方とも存在する区間のみ）
+                # O(1)ルックアップのためにインデックスマップを作成
+                expected_passed_idx = {section: idx for idx, section in enumerate(expected_passed)}
+                
                 reversals = []
                 for i in range(len(passed_sections) - 1):
                     curr_section = passed_sections[i]
                     next_section = passed_sections[i + 1]
                     
                     # 両方の区間が期待順序に含まれている場合のみチェック
-                    if curr_section in expected_passed and next_section in expected_passed:
-                        curr_idx = expected_passed.index(curr_section)
-                        next_idx = expected_passed.index(next_section)
+                    if curr_section in expected_passed_idx and next_section in expected_passed_idx:
+                        curr_idx = expected_passed_idx[curr_section]
+                        next_idx = expected_passed_idx[next_section]
                         
                         # 逆転している場合
                         if curr_idx > next_idx:
@@ -396,7 +399,6 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                 
                 # 期待される区間の範囲を特定
                 # expected_passedは expected_order から生成されるため、必ず含まれているはず
-                # だが、念のため try-except で保護
                 if expected_passed:
                     try:
                         first_expected_idx = expected_order.index(expected_passed[0])
@@ -411,10 +413,13 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                         
                         if missing_sections:
                             problem_details.append(f"  歯抜け（未通過）: {', '.join(missing_sections)}")
-                    except ValueError:
+                    except ValueError as e:
                         # expected_passedの要素がexpected_orderに存在しない場合
                         # （通常は発生しないが、念のため）
-                        pass
+                        logger.warning(
+                            f"データ不整合: ゼッケン {zekken} のグループ {group} で "
+                            f"expected_passed の要素が expected_order に見つかりません: {e}"
+                        )
                 
                 # エラーメッセージを構築
                 error_msg = f"⚠️ ゼッケン通過順エラー\n"
