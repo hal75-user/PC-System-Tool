@@ -372,22 +372,20 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                 # 詳細な問題箇所を特定
                 problem_details = []
                 
-                # 逆転を検出
+                # 逆転を検出（expected_passedに両方とも存在する区間のみ）
                 reversals = []
                 for i in range(len(passed_sections) - 1):
                     curr_section = passed_sections[i]
                     next_section = passed_sections[i + 1]
                     
-                    # 期待順序での位置を確認
-                    try:
+                    # 両方の区間が期待順序に含まれている場合のみチェック
+                    if curr_section in expected_passed and next_section in expected_passed:
                         curr_idx = expected_passed.index(curr_section)
                         next_idx = expected_passed.index(next_section)
                         
                         # 逆転している場合
                         if curr_idx > next_idx:
                             reversals.append(f"{curr_section} → {next_section}")
-                    except ValueError:
-                        pass
                 
                 if reversals:
                     problem_details.append(f"  逆転: {', '.join(reversals)}")
@@ -397,19 +395,26 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                 expected_set = set(expected_passed)
                 
                 # 期待される区間の範囲を特定
+                # expected_passedは expected_order から生成されるため、必ず含まれているはず
+                # だが、念のため try-except で保護
                 if expected_passed:
-                    first_expected_idx = expected_order.index(expected_passed[0])
-                    last_expected_idx = expected_order.index(expected_passed[-1])
-                    
-                    # その範囲内で通過していない区間を検出
-                    missing_sections = []
-                    for idx in range(first_expected_idx, last_expected_idx + 1):
-                        section = expected_order[idx]
-                        if section not in passed_set:
-                            missing_sections.append(section)
-                    
-                    if missing_sections:
-                        problem_details.append(f"  歯抜け（未通過）: {', '.join(missing_sections)}")
+                    try:
+                        first_expected_idx = expected_order.index(expected_passed[0])
+                        last_expected_idx = expected_order.index(expected_passed[-1])
+                        
+                        # その範囲内で通過していない区間を検出
+                        missing_sections = []
+                        for idx in range(first_expected_idx, last_expected_idx + 1):
+                            section = expected_order[idx]
+                            if section not in passed_set:
+                                missing_sections.append(section)
+                        
+                        if missing_sections:
+                            problem_details.append(f"  歯抜け（未通過）: {', '.join(missing_sections)}")
+                    except ValueError:
+                        # expected_passedの要素がexpected_orderに存在しない場合
+                        # （通常は発生しないが、念のため）
+                        pass
                 
                 # エラーメッセージを構築
                 error_msg = f"⚠️ ゼッケン通過順エラー\n"
