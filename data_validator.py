@@ -375,6 +375,7 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                 # 逆転を検出（expected_passedに両方とも存在する区間のみ）
                 # O(1)ルックアップのためにインデックスマップを作成
                 expected_passed_idx = {section: idx for idx, section in enumerate(expected_passed)}
+                expected_order_idx = {section: idx for idx, section in enumerate(expected_order)}
                 
                 reversals = []
                 for i in range(len(passed_sections) - 1):
@@ -400,10 +401,11 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                 # 期待される区間の範囲を特定
                 # expected_passedは expected_order から生成されるため、必ず含まれているはず
                 if expected_passed:
-                    try:
-                        first_expected_idx = expected_order.index(expected_passed[0])
-                        last_expected_idx = expected_order.index(expected_passed[-1])
-                        
+                    # O(1)ルックアップを使用
+                    first_expected_idx = expected_order_idx.get(expected_passed[0])
+                    last_expected_idx = expected_order_idx.get(expected_passed[-1])
+                    
+                    if first_expected_idx is not None and last_expected_idx is not None:
                         # その範囲内で通過していない区間を検出
                         missing_sections = []
                         for idx in range(first_expected_idx, last_expected_idx + 1):
@@ -413,7 +415,7 @@ def check_zekken_passage_order(results: List, sections: List) -> List[Validation
                         
                         if missing_sections:
                             problem_details.append(f"  歯抜け（未通過）: {', '.join(missing_sections)}")
-                    except ValueError:
+                    else:
                         # expected_passedの要素がexpected_orderに存在しない場合
                         # （通常は発生しないが、念のため）
                         logger.warning(
