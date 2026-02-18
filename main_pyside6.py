@@ -794,7 +794,11 @@ class FinalStatusDialog(QDialog):
             if penalty_item and penalty_item.text().strip():
                 try:
                     penalty_value = float(penalty_item.text())
-                    if penalty_value != 0.0:
+                    # 有限の数値かチェック（inf, -inf, NaNは無効）
+                    import math
+                    if not math.isfinite(penalty_value):
+                        invalid_penalties.append((zekken, penalty_item.text()))
+                    elif penalty_value != 0.0:
                         self.app_config.set_penalty(zekken, penalty_value)
                 except ValueError:
                     invalid_penalties.append((zekken, penalty_item.text()))
