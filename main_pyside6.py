@@ -304,7 +304,7 @@ class StatusMatrixDialog(QDialog):
         
         layout.addLayout(top_layout)
         
-        # タブウィジェット
+        # タブウィジェット（画面の80%を占める）
         self.tab_widget = QTabWidget()
         
         # 全日タブ
@@ -332,7 +332,7 @@ class StatusMatrixDialog(QDialog):
                 elif group_idx > 1 and len(self.tab_widgets) > 1:
                     break
         
-        layout.addWidget(self.tab_widget)
+        layout.addWidget(self.tab_widget, stretch=8)  # 80%のスペースを確保
         
         # 下部ボタン
         bottom_layout = QHBoxLayout()
