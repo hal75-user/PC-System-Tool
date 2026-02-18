@@ -116,8 +116,11 @@ class ConfigLoader:
                 self.entries_dict[int(zekken)] = {
                     'DriverName': row['DriverName'] if 'DriverName' in row and not pd.isna(row['DriverName']) else '',
                     'DriverAge': row['DriverAge'] if not pd.isna(row['DriverAge']) else 0,
+                    'CoDriverName': row['CoDriverName'] if 'CoDriverName' in row and not pd.isna(row['CoDriverName']) else '',
                     'CoDriverAge': row['CoDriverAge'] if not pd.isna(row['CoDriverAge']) else 0,
+                    'CarName': row['CarName'] if 'CarName' in row and not pd.isna(row['CarName']) else '',
                     'CarYear': row['車製造年'] if not pd.isna(row['車製造年']) else 0,
+                    'CarClass': row['CarClass'] if 'CarClass' in row and not pd.isna(row['CarClass']) else '',
                     'Coef': row['係数'] if not pd.isna(row['係数']) else 1.0,
                     'AgeCoef': row['年齢係数'] if not pd.isna(row['年齢係数']) else 1.0
                 }

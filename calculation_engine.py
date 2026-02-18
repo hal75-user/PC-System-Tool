@@ -289,6 +289,49 @@ class CalculationEngine:
         """
         return self.get_total_score(zekken)
     
+    def get_score_for_sections(self, zekken: int, sections: List[str]) -> int:
+        """指定された区間のみの得点を計算
+        
+        Args:
+            zekken: ゼッケン番号
+            sections: 区間名のリスト
+            
+        Returns:
+            指定区間の総合得点（int変換により小数点以下切り捨て）
+            計算式: int((PC + PCG) * 係数 * 年齢係数 + CO)
+            注: 得点は常に正の値であり、int()による0方向への切り捨てで問題ない
+        """
+        # entries 情報取得
+        entry = self.config.entries_dict.get(zekken)
+        if entry is None:
+            return 0
+        
+        coef = entry['Coef']
+        age_coef = entry['AgeCoef']
+        
+        pc_pcg_total = 0
+        co_total = 0
+        
+        if zekken not in self.results:
+            return 0
+        
+        # 指定された区間のみ集計
+        for section_name in sections:
+            if section_name not in self.results[zekken]:
+                continue
+            
+            result = self.results[zekken][section_name]
+            section_type = self._get_section_type(section_name)
+            
+            if section_type in ["PC", "PCG"]:
+                pc_pcg_total += result.point
+            elif section_type == "CO":
+                co_total += result.point
+        
+        # 総合得点計算
+        total = int(pc_pcg_total * coef * age_coef + co_total)
+        return total
+    
     def format_time(self, seconds: Optional[float]) -> str:
         """秒を時刻文字列にフォーマット（HH:MM:SS.SS）"""
         if seconds is None:

@@ -501,6 +501,7 @@ class StatusMatrixTabWidget(QWidget):
             item = QTableWidgetItem(str(zekken))
             item.setFlags(Qt.ItemIsEnabled)
             item.setBackground(QBrush(QColor(240, 240, 240)))
+            item.setForeground(QBrush(QColor(0, 0, 0)))  # 黒文字
             self.table.setItem(row_idx, 0, item)
             
             # 各区間のセル
@@ -515,6 +516,7 @@ class StatusMatrixTabWidget(QWidget):
             penalty_item.setTextAlignment(Qt.AlignCenter)
             penalty_item.setData(Qt.UserRole, ("penalty", zekken))
             penalty_item.setBackground(QBrush(QColor(255, 250, 205)))  # 淡い黄色で区別
+            penalty_item.setForeground(QBrush(QColor(0, 0, 0)))  # 黒文字
             self.table.setItem(row_idx, self.penalty_col, penalty_item)
             
             # Total Result列（ステータス入力）
@@ -693,6 +695,7 @@ class FinalStatusDialog(QDialog):
             zekken_item = QTableWidgetItem(str(zekken))
             zekken_item.setFlags(Qt.ItemIsEnabled)
             zekken_item.setBackground(QBrush(QColor(240, 240, 240)))
+            zekken_item.setForeground(QBrush(QColor(0, 0, 0)))  # 黒文字
             zekken_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 0, zekken_item)
             
@@ -700,6 +703,7 @@ class FinalStatusDialog(QDialog):
             penalty_item = QTableWidgetItem("")
             penalty_item.setTextAlignment(Qt.AlignCenter)
             penalty_item.setBackground(QBrush(QColor(255, 250, 205)))  # 淡い黄色
+            penalty_item.setForeground(QBrush(QColor(0, 0, 0)))  # 黒文字
             self.table.setItem(row_idx, 1, penalty_item)
             
             # ステータス列（チェックボックス的に使用）
@@ -861,11 +865,6 @@ class ResultTableWidget(QWidget):
     def _create_widgets(self):
         layout = QVBoxLayout()
         
-        # 「すべて表示」ボタンのみ残す
-        self.all_btn = QPushButton("すべて表示")
-        self.all_btn.clicked.connect(lambda: self.set_filter(None))
-        layout.addWidget(self.all_btn)
-        
         # テーブル
         self.table = QTableWidget()
         # ソート機能を無効化
@@ -907,14 +906,36 @@ class ResultTableWidget(QWidget):
         # 表示する区間を決定
         if self.filter_sections is None:
             sections = self.config_loader.get_section_order()
+            is_all_sections = True
         else:
             sections = self.filter_sections
+            is_all_sections = False
         
         # ゼッケン一覧
         zekkens = sorted(self.calc_engine.results.keys())
         
+        # 表示する区間の得点と順位を計算
+        scores = {}
+        for zekken in zekkens:
+            scores[zekken] = self.calc_engine.get_score_for_sections(zekken, sections)
+        
+        # 得点に基づいて順位を計算（降順、同点は同順位）
+        sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        ranks = {}
+        current_rank = 1
+        prev_score = None
+        for idx, (zekken, score) in enumerate(sorted_scores, start=1):
+            if prev_score is not None and score < prev_score:
+                current_rank = idx
+            ranks[zekken] = current_rank
+            prev_score = score
+        
         # カラム構成（2段ヘッダー：改行で区切る）
-        columns = ["ゼッケン", "ドライバー名", "総合得点", "総合順位"]
+        # 全日表示の場合は「総合」、日別表示の場合は「得点」「順位」
+        if is_all_sections:
+            columns = ["ゼッケン", "ドライバー名", "総合得点", "総合順位"]
+        else:
+            columns = ["ゼッケン", "ドライバー名", "得点", "順位"]
         
         for section in sections:
             columns.extend([
@@ -948,22 +969,13 @@ class ResultTableWidget(QWidget):
                 driver_name = f"#{zekken}"
             self._set_item(row_idx, 1, driver_name)
             
-            total_score = self.calc_engine.get_total_score(zekken)
-            self._set_item(row_idx, 2, str(total_score))
+            # 表示する区間の得点を表示
+            section_score = scores.get(zekken, 0)
+            self._set_item(row_idx, 2, str(section_score))
             
-            # 総合順位を表示
-            rank_str = "-"
-            if hasattr(self, 'summary_df'):
-                rank_row = self.summary_df[self.summary_df['ゼッケン'] == zekken]
-                if not rank_row.empty:
-                    rank_value = rank_row.iloc[0]['順位']
-                    if pd.notna(rank_value):
-                        if isinstance(rank_value, (int, float)):
-                            rank_str = str(int(rank_value))
-                        else:
-                            rank_str = str(rank_value)
-            
-            self._set_item(row_idx, 3, rank_str)
+            # 表示する区間の順位を表示
+            section_rank = ranks.get(zekken, "-")
+            self._set_item(row_idx, 3, str(section_rank))
             
             col_idx = 4
             
@@ -1084,9 +1096,9 @@ class ResultTableWidget(QWidget):
                 self.table.setColumnWidth(col_idx, 60)
             elif col_name == "ドライバー名":
                 self.table.setColumnWidth(col_idx, 120)
-            elif col_name == "総合得点":
+            elif col_name in ["総合得点", "得点"]:
                 self.table.setColumnWidth(col_idx, 70)
-            elif col_name == "総合順位":
+            elif col_name in ["総合順位", "順位"]:
                 self.table.setColumnWidth(col_idx, 70)
             elif "\nSTART" in col_name or "\nGOAL" in col_name:
                 self.table.setColumnWidth(col_idx, 95)
@@ -1287,8 +1299,17 @@ class SummaryTableWidget(QWidget):
             car_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 4, car_item)
             
-            # 車両製造年
-            year_item = QTableWidgetItem(str(row.get('車両製造年', '')))
+            # 車両製造年 (整数表示、小数点以下は切り捨て)
+            year_value = row.get('車両製造年', '')
+            if year_value and pd.notna(year_value):
+                try:
+                    # int(float())で小数点以下を切り捨て（例: 1928.0 -> 1928）
+                    year_str = str(int(float(year_value)))
+                except (ValueError, TypeError):
+                    year_str = str(year_value)
+            else:
+                year_str = ''
+            year_item = QTableWidgetItem(year_str)
             year_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 5, year_item)
             
@@ -1297,13 +1318,22 @@ class SummaryTableWidget(QWidget):
             class_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 6, class_item)
             
-            # Point (純粋な得点)
-            point_item = QTableWidgetItem(str(row.get('Point', 0)))
+            # Point (純粋な得点) - 小数点2桁表示
+            point_value = row.get('Point', 0)
+            try:
+                point_str = f"{float(point_value):.2f}"
+            except (ValueError, TypeError):
+                point_str = str(point_value)
+            point_item = QTableWidgetItem(point_str)
             point_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 7, point_item)
             
-            # H.C.L Point
-            hcl_item = QTableWidgetItem(str(hcl_point))
+            # H.C.L Point - 小数点2桁表示
+            try:
+                hcl_str = f"{float(hcl_point):.2f}"
+            except (ValueError, TypeError):
+                hcl_str = str(hcl_point)
+            hcl_item = QTableWidgetItem(hcl_str)
             hcl_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 8, hcl_item)
             
@@ -1314,8 +1344,12 @@ class SummaryTableWidget(QWidget):
                 penalty_item.setForeground(QBrush(QColor(255, 0, 0)))  # 赤字
             self.table.setItem(row_idx, 9, penalty_item)
             
-            # TotalPoint
-            total_item = QTableWidgetItem(str(int(total_point)))
+            # TotalPoint - 小数点2桁表示
+            try:
+                total_str = f"{float(total_point):.2f}"
+            except (ValueError, TypeError):
+                total_str = str(total_point)
+            total_item = QTableWidgetItem(total_str)
             total_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 10, total_item)
     
